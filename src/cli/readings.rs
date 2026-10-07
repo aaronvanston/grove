@@ -427,6 +427,7 @@ fn show_machine(machine: &Machine) -> Value {
         "name": machine.name,
         "os_version": facts.os_version,
         "port": machine.port,
+        "probe": super::machines::probe_record(machine),
         "product_name": facts.product_name,
     })
 }

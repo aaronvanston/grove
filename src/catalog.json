@@ -1037,7 +1037,8 @@
       ],
       "examples": [
         "grove stream",
-        "grove stream --for 10m --json"
+        "grove stream --for 10m --json",
+        "grove stream cedar-01 --jsonl"
       ],
       "kind": "write",
       "module": "machines",
@@ -1052,7 +1053,7 @@
         "stream"
       ],
       "summary": "Collect from every probe continuously",
-      "description": "Keeps one SSH stream open to each machine's probe and writes every reading as it lands: the last hour at full resolution, one sample a minute into history (with its alerts and hooks), and the last reading for show, status and sample. After any gap it reconnects and resumes from the last reading it got, catching up from the probe's one-hour ring. Run it under your scheduler or service manager; it stops on Ctrl+C or SIGTERM."
+      "description": "Keeps one SSH stream open to each machine's probe and writes every reading as it lands: the last hour at full resolution, one sample a minute into history (with its alerts and hooks), and the last reading for show, status and sample. After any gap it reconnects and resumes from the last reading it got, catching up from the probe's one-hour ring. Run it under your scheduler or service manager; it stops on Ctrl+C or SIGTERM. With --jsonl it also writes an event a line as each write lands: connected, facts, reading (the machine's new latest reading, the same record sample gives) and disconnected (with why), before the result."
     },
     {
       "aliases": [],

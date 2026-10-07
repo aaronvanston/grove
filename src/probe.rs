@@ -323,15 +323,25 @@ pub struct Tally {
     dirty: bool,
 }
 
+/// What a write tells whoever runs the collector, once it has committed:
+/// a machine connected, sent its facts, has a new latest reading, or lost
+/// its stream.
+pub struct Report {
+    pub kind: &'static str,
+    pub data: serde_json::Value,
+}
+
 /// Collects from every machine's probe until `stop` is set or `until`
 /// passes: full-resolution readings into the live window, one sample a
 /// minute into history (with its alerts), and the last reading for
-/// `show` and `status`. Hooks run after each write.
+/// `show` and `status`. Hooks run after each write, and `report` hears
+/// what each write changed.
 pub fn collect(
     store: &Store,
     machines: &[Machine],
     until: Option<Instant>,
     stop: &Arc<AtomicBool>,
+    report: &mut dyn FnMut(Report),
 ) -> crate::store::Result<Vec<Tally>> {
     let (sender, receiver) = mpsc::channel();
     let mut tallies: Vec<Tally> = machines.iter().map(|_| Tally::default()).collect();
@@ -374,6 +384,7 @@ pub fn collect(
             if prune {
                 last_prune = Instant::now();
             }
+            let mut reports = Vec::new();
             let events = store.write(|store| {
                 apply(
                     store,
@@ -381,8 +392,10 @@ pub fn collect(
                     &mut tallies,
                     std::mem::take(&mut batch),
                     prune,
+                    &mut reports,
                 )
             })?;
+            reports.into_iter().for_each(&mut *report);
             let _ = crate::hooks::run_for_events(store, &events);
             last_write = Instant::now();
         }
@@ -411,7 +424,9 @@ fn apply(
     tallies: &mut [Tally],
     batch: Vec<Message>,
     prune: bool,
+    reports: &mut Vec<Report>,
 ) -> crate::store::Result<Vec<crate::alerts::Event>> {
+    reports.clear();
     let mut events = Vec::new();
     let now = now_ms();
     for message in batch {
@@ -430,6 +445,10 @@ fn apply(
                     tally.seq = 0;
                 }
                 tally.ring_id = Some(ring_id);
+                reports.push(Report {
+                    kind: "connected",
+                    data: serde_json::json!({ "machine": machines[index].name }),
+                });
             }
             Message::Facts { index, text } => {
                 let tally = &mut tallies[index];
@@ -439,6 +458,23 @@ fn apply(
                 if tally.facts.config.checked_at.is_some() {
                     store.update_config(name, &tally.facts.config)?;
                 }
+                let facts = &tally.facts;
+                reports.push(Report {
+                    kind: "facts",
+                    data: serde_json::json!({
+                        "arch": facts.arch,
+                        "chip": facts.facts.chip,
+                        "gpu": facts.facts.gpu,
+                        "gpu_mem_total_mb": crate::output::opt_num(facts.facts.gpu_mem_total_mb),
+                        "hostname": facts.hostname,
+                        "ip": facts.facts.ip,
+                        "machine": name,
+                        "model": facts.facts.model,
+                        "os": facts.os,
+                        "os_version": facts.facts.os_version,
+                        "product_name": facts.facts.product_name,
+                    }),
+                });
             }
             Message::Reading {
                 index,
@@ -496,6 +532,10 @@ fn apply(
                 let _ = received_at;
             }
             Message::Ended { index, error } => {
+                reports.push(Report {
+                    kind: "disconnected",
+                    data: serde_json::json!({ "error": error, "machine": machines[index].name }),
+                });
                 tallies[index].last_error = Some(error);
                 events.extend(store.record_contact(&machines[index].name, now, false)?);
             }
@@ -525,11 +565,15 @@ fn apply(
                 sample.net_tx_bytes,
                 previous.as_ref().map(|previous| previous.net_tx_bytes),
             );
+            reports.push(Report {
+                kind: "reading",
+                data: serde_json::json!({ "machine": machine.name, "reading": reading }),
+            });
             store.set_latest(
                 &machine.name,
                 &Latest {
                     taken_at: sample.taken_at,
-                    reading,
+                    reading: reading.clone(),
                     net_rx_bytes: sample.net_rx_bytes,
                     net_tx_bytes: sample.net_tx_bytes,
                     jiffies: None,

@@ -61,7 +61,7 @@ That is a cut-down example; the full shape is in [`docs/commands.md`](docs/comma
 Each release has a build of `grove` and `grove-probe` for macOS and Linux on arm64 and x64, with a `SHA256SUMS` file to check them against.
 
 ```bash
-version=0.1.1
+version=0.1.2
 target=darwin-arm64   # or darwin-x64, linux-arm64, linux-x64
 curl -fLO "https://github.com/aaronvanston/grove/releases/download/v$version/grove-$version-$target.tar.gz"
 curl -fLO "https://github.com/aaronvanston/grove/releases/download/v$version/SHA256SUMS"
@@ -120,6 +120,7 @@ SSH runs with your own config, `BatchMode` and connection sharing. Scripts are f
 
 - Structured data goes to stdout; diagnostics go to stderr.
 - `--json` emits one versioned envelope, `{command, data, ok, schemaVersion: 1}`; failures emit `{error: {code, message, hint, details}, ok: false, schemaVersion: 1}` on stderr.
+- `--jsonl` emits the same envelope as one line; `stream --jsonl` writes `{data, schemaVersion, timestamp, type}` events a line at a time before it, as readings land.
 - `status`, `alerts state`, `drift` and `policy explain` are gates: they exit 1 when the answer is no.
 - Exit codes: 0 success, 1 failure or a closed gate, 2 usage, 78 configuration.
 - Hooks run through `sh -c` with `GROVE_EVENT`, `GROVE_MACHINE`, `GROVE_METRIC`, `GROVE_THRESHOLD`, `GROVE_VALUE`, `GROVE_WINDOW` and `GROVE_AT`, and the event as JSON on stdin. They are killed after 30 seconds and never change an exit code.

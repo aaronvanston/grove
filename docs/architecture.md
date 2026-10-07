@@ -40,7 +40,7 @@ probe/src/sampler.rs  one reading; linux.rs and macos.rs read the kernel; agents
 1. Preflight scans argv for the presentation flags, so even a parse error is reported in the mode and color asked for.
 2. The parser reads argv against the tree built from the catalog. Every parse error exits 2; with `--json` it also prints an `invalid_usage` envelope.
 3. The command runs with the parsed arguments, options and styling, and returns a `Done` (the data, plus text for people) or an `AppError` (code, message, hint, exit code).
-4. `cli::run` renders exactly one outcome: the human text, or one envelope for `--json` and `--jsonl`. Errors go to stderr.
+4. `cli::run` renders exactly one outcome: the human text, or one envelope for `--json` and `--jsonl`. Errors go to stderr. A long-running command may write `--jsonl` events before it, through `Context::event`, so a caller can follow it as it runs.
 
 ## The probe
 
@@ -78,7 +78,7 @@ A value the machine can't give is all ones (or the minimum, for signed fields), 
 
 `grove-probe follow --since <seq>` writes the header, the facts, every reading after `seq`, and then each new reading as it lands, waiting on inotify or kqueue rather than polling. Facts are sent again only when their generation changes. `read` does the same once and exits.
 
-`grove stream` keeps one stream per machine, over the system `ssh` with connection sharing, or directly for this machine. It measures each machine's clock offset over a short run before connecting and stores times on its own clock. After any gap it reconnects with backoff and resumes from the last sequence number it wrote; a new ring id means the probe's file was replaced, and reading starts over. Readings are written once a second in one transaction: the last hour into `live_readings`, one sample a minute into `samples` with the minute's mean CPU, alert evaluation on that sample, and the last reading for `show`, `status` and `sample`. Hooks run after the write commits.
+`grove stream` keeps one stream per machine, over the system `ssh` with connection sharing, or directly for this machine. It measures each machine's clock offset over a short run before connecting and stores times on its own clock. After any gap it reconnects with backoff and resumes from the last sequence number it wrote; a new ring id means the probe's file was replaced, and reading starts over. Readings are written once a second in one transaction: the last hour into `live_readings`, one sample a minute into `samples` with the minute's mean CPU, alert evaluation on that sample, and the last reading for `show`, `status` and `sample`. Hooks run after the write commits, and with `--jsonl` each write's events follow it: `connected`, `facts`, `reading` with the machine's new latest reading, and `disconnected` with why. A caller reading them sees each machine about once a second without asking the store.
 
 `sample` answers from a streamed reading when one is under two intervals old, otherwise asks the probe for its newest reading, and falls back to the sample script where there is no probe.
 

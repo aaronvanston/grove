@@ -328,9 +328,20 @@ pub struct Context {
     pub ui: Ui,
     pub arguments: Vec<ArgValue>,
     pub options: HashMap<String, OptValue>,
+    /// --jsonl: a long-running command reports each event as it happens,
+    /// one record a line, before its result.
+    pub events: bool,
 }
 
 impl Context {
+    /// Writes one event record now, when the caller asked for --jsonl;
+    /// otherwise nothing.
+    pub fn event(&self, kind: &str, data: Value) {
+        if self.events {
+            stdout(&format!("{}\n", output::event_record(kind, data)));
+        }
+    }
+
     /// The positional argument at `index`, trimmed, when it was given.
     pub fn argument(&self, index: usize) -> Option<String> {
         match self.arguments.get(index) {
@@ -509,6 +520,7 @@ pub fn run(argv: &[String]) -> i32 {
         ui: Ui::new(&globals),
         arguments: invocation.arguments,
         options: invocation.options,
+        events: globals.mode == Mode::Jsonl,
     };
     match dispatch(&path, &context) {
         Ok(done) => render_done(&path, &done, &globals, &context.ui),

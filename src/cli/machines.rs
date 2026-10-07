@@ -63,7 +63,16 @@ pub fn machine_record(machine: &Machine) -> Value {
         "labels": labels_record(&machine.labels),
         "name": machine.name,
         "port": machine.port,
+        "probe": probe_record(machine),
     })
+}
+
+/// Where the machine's probe lives, or null when it has none.
+pub fn probe_record(machine: &Machine) -> Value {
+    machine
+        .probe
+        .as_ref()
+        .map_or(Value::Null, |probe| json!({ "dir": probe.dir }))
 }
 
 /// A commit with a marker when the files it wrote no longer match it.

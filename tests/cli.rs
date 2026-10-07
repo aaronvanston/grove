@@ -158,6 +158,7 @@ fn a_machine_is_added_labeled_listed_and_removed() {
             "labels": { "locality": null, "power": null, "privacy": null, "trust": "personal" },
             "name": "cam-mbp",
             "port": 22,
+            "probe": null,
         })
     );
     // Only the labels passed change, and an empty value clears one.
@@ -652,4 +653,60 @@ fn a_stream_collects_from_a_running_probe() {
         .run(&["graph", "here", "--since", "10m", "--json"])
         .data();
     assert!(graph["samples"].as_u64().unwrap_or(0) >= 2);
+}
+
+/// With --jsonl a stream reports as it goes: the connection, the
+/// machine's facts and each new latest reading, one record a line, then
+/// the result. The registry says where the probe lives.
+#[test]
+fn a_stream_reports_each_reading_as_a_line() {
+    let sandbox = Sandbox::new();
+    assert_eq!(sandbox.run(&["add", "here", "localhost"]).code, 0);
+    let place = sandbox.root.join("probe");
+    std::fs::create_dir_all(&place).expect("place");
+    std::fs::copy(probe_binary(), place.join("grove-probe")).expect("copy");
+    let mut probe = Command::new(place.join("grove-probe"))
+        .args(["run", "--dir"])
+        .arg(place.join("data"))
+        .env("HOME", sandbox.root.join("home"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("probe starts");
+    let dir = place.display().to_string();
+    assert_eq!(sandbox.run(&["probe", "use", "here", &dir]).code, 0);
+    let listed = sandbox.run(&["list", "--json"]).data();
+    assert_eq!(listed[0]["probe"]["dir"], dir.as_str());
+    let streamed = sandbox.run(&["stream", "here", "--for", "7s", "--jsonl"]);
+    let _ = probe.kill();
+    let _ = probe.wait();
+    assert_eq!(streamed.code, 0, "{}", streamed.stderr);
+    let lines: Vec<serde_json::Value> = streamed
+        .stdout
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("one record a line"))
+        .collect();
+    let kinds: Vec<&str> = lines
+        .iter()
+        .filter_map(|line| line["type"].as_str())
+        .collect();
+    assert_eq!(kinds.first(), Some(&"connected"), "{kinds:?}");
+    assert!(kinds.contains(&"facts"), "{kinds:?}");
+    assert_eq!(kinds.last(), Some(&"result"), "{kinds:?}");
+    let readings: Vec<&serde_json::Value> = lines
+        .iter()
+        .filter(|line| line["type"] == "reading")
+        .collect();
+    assert!(readings.len() >= 2, "{kinds:?}");
+    for line in &readings {
+        assert_eq!(line["schemaVersion"], 1);
+        assert_eq!(line["data"]["machine"], "here");
+        assert!(
+            line["data"]["reading"]["mem_used_pct"].is_number(),
+            "{line}"
+        );
+    }
+    let rates = &readings[readings.len() - 1]["data"]["reading"];
+    assert!(rates["net_rx_bps"].is_number(), "{rates}");
 }

@@ -1,6 +1,6 @@
 # grove command reference
 
-The commands of grove 0.1.1. This page is kept in step with `src/catalog.json`; `grove schema --json` and `grove describe <command>` print the same catalog from the binary.
+The commands of grove 0.1.2. This page is kept in step with `src/catalog.json`; `grove schema --json` and `grove describe <command>` print the same catalog from the binary.
 
 Every command also takes the global flags: `--json` or `--jsonl` for machine output, `--compact`, `--color <when>` or `--no-color`, `--non-interactive`, `-q, --quiet` and `--verbose`.
 
@@ -232,7 +232,7 @@ grove top cam-mini
 
 Collect from every probe continuously
 
-Keeps one SSH stream open to each machine's probe and writes every reading as it lands: the last hour at full resolution, one sample a minute into history (with its alerts and hooks), and the last reading for show, status and sample. After any gap it reconnects and resumes from the last reading it got, catching up from the probe's one-hour ring. Run it under your scheduler or service manager; it stops on Ctrl+C or SIGTERM.
+Keeps one SSH stream open to each machine's probe and writes every reading as it lands: the last hour at full resolution, one sample a minute into history (with its alerts and hooks), and the last reading for show, status and sample. After any gap it reconnects and resumes from the last reading it got, catching up from the probe's one-hour ring. Run it under your scheduler or service manager; it stops on Ctrl+C or SIGTERM. With --jsonl it also writes an event a line as each write lands: connected, facts, reading (the machine's new latest reading, the same record sample gives) and disconnected (with why), before the result.
 
 ### Options
 
@@ -243,6 +243,7 @@ Keeps one SSH stream open to each machine's probe and writes every reading as it
 ```bash
 grove stream
 grove stream --for 10m --json
+grove stream cedar-01 --jsonl
 ```
 
 ## `grove probe install <name>`

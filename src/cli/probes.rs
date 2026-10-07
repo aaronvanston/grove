@@ -404,7 +404,9 @@ pub fn stream(context: &Context) -> Result<Done, AppError> {
     };
     let started = Instant::now();
     let until = limit.map(|ms| started + Duration::from_millis(ms as u64));
-    let tallies = crate::probe::collect(&store, &machines, until, &stop)?;
+    let tallies = crate::probe::collect(&store, &machines, until, &stop, &mut |report| {
+        context.event(report.kind, report.data);
+    })?;
     stop.store(true, Ordering::SeqCst);
     let _ = watcher.join();
     let (cpu_ms, rss_kb) = own_usage();

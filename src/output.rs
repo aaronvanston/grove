@@ -168,6 +168,17 @@ pub fn success_envelope(command: &str, outcome: &Outcome, globals: &Globals) -> 
     to_json(&Value::Object(envelope), compact)
 }
 
+/// One `--jsonl` event, written while a command runs: its type and data
+/// beside the schema version and the time it was written.
+pub fn event_record(kind: &str, data: Value) -> String {
+    let mut record = Map::new();
+    record.insert("data".into(), data);
+    record.insert("schemaVersion".into(), Value::from(SCHEMA_VERSION));
+    record.insert("timestamp".into(), Value::from(iso_ms(now_ms())));
+    record.insert("type".into(), Value::from(kind));
+    to_json(&Value::Object(record), true)
+}
+
 /// The error envelope written to stderr in every machine mode.
 pub fn error_envelope(error: &AppError, compact: bool) -> String {
     let mut body = Map::new();
