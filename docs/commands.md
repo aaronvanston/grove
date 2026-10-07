@@ -1,6 +1,6 @@
 # grove command reference
 
-The commands of grove 0.1.3. This page is kept in step with `src/catalog.json`; `grove schema --json` and `grove describe <command>` print the same catalog from the binary.
+The commands of grove 0.1.4. This page is kept in step with `src/catalog.json`; `grove schema --json` and `grove describe <command>` print the same catalog from the binary.
 
 Every command also takes the global flags: `--json` or `--jsonl` for machine output, `--compact`, `--color <when>` or `--no-color`, `--non-interactive`, `-q, --quiet` and `--verbose`.
 

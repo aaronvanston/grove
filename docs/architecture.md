@@ -72,7 +72,7 @@ A reading is 128 bytes, little-endian, with its sequence number at the start and
 120 u64 seq again
 ```
 
-A value the machine can't give is all ones (or the minimum, for signed fields), never zero. The ring file is a 64-byte header (format version, capacity, interval, the newest sequence number, a ring id chosen when the file is created, and the probe's own CPU time and memory) and 1,800 slots: an hour, 230 KB. The writer fills a slot and only then publishes its sequence number in the header, so a reader never sees a reading that isn't whole; one that races the writer sees the two sequence numbers disagree and stops.
+A value the machine can't give is all ones (or the minimum, for signed fields), never zero. The probe's folder is its owner's alone: the folder and its `data` are `0700` and the ring, facts and pid files `0600`, tightened when the probe starts and when an install lands over an older one. The ring file is a 64-byte header (format version, capacity, interval, the newest sequence number, a ring id chosen when the file is created, and the probe's own CPU time and memory) and 1,800 slots: an hour, 230 KB. The writer fills a slot and only then publishes its sequence number in the header, so a reader never sees a reading that isn't whole; one that races the writer sees the two sequence numbers disagree and stops.
 
 ### Streams
 

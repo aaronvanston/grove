@@ -547,6 +547,19 @@ fn the_probe_installs_supervised_and_uninstalls() {
     let dist = release(&sandbox);
     let place = sandbox.root.join("remote");
     let place_text = place.display().to_string();
+    // An older install left its folder and readings open to everyone.
+    use std::os::unix::fs::PermissionsExt;
+    let mode =
+        |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    std::fs::create_dir_all(place.join("data")).unwrap();
+    std::fs::write(place.join("data/ring"), b"").unwrap();
+    for (path, open) in [
+        (place.clone(), 0o755),
+        (place.join("data"), 0o755),
+        (place.join("data/ring"), 0o644),
+    ] {
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(open)).unwrap();
+    }
     let installed = sandbox.run(&[
         "probe",
         "install",
@@ -560,6 +573,15 @@ fn the_probe_installs_supervised_and_uninstalls() {
     assert_eq!(installed.code, 0, "{}", installed.stderr);
     assert_eq!(installed.data()["service"], true);
     assert!(place.join("grove-probe").is_file() && place.join("data").is_dir());
+    assert_eq!(
+        (
+            mode(&place),
+            mode(&place.join("data")),
+            mode(&place.join("data/ring"))
+        ),
+        (0o700, 0o700, 0o600),
+        "only the owner reads the probe's folder"
+    );
     let log = std::fs::read_to_string(sandbox.root.join("guard.log")).unwrap_or_default();
     if cfg!(target_os = "macos") {
         assert!(
@@ -639,6 +661,24 @@ fn a_stream_collects_from_a_running_probe() {
     let _ = probe.kill();
     let _ = probe.wait();
     assert_eq!(streamed.code, 0, "{}", streamed.stderr);
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |name: &str| {
+        std::fs::metadata(place.join(name))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777
+    };
+    assert_eq!(
+        (
+            mode("data"),
+            mode("data/ring"),
+            mode("data/facts"),
+            mode("data/pid")
+        ),
+        (0o700, 0o600, 0o600, 0o600),
+        "the probe's readings are its owner's alone"
+    );
     let machine = &streamed.data()["machines"][0];
     assert!(machine["readings"].as_u64().unwrap_or(0) >= 2, "{machine}");
     assert_eq!(machine["connects"], 1);

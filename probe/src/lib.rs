@@ -285,14 +285,18 @@ impl Ring {
     }
 
     /// Opens the ring for writing, creating it (with a fresh id) when it
-    /// is missing or in another format.
+    /// is missing or in another format. Only its owner may read it, an
+    /// older ring included.
     pub fn open_writer(path: &Path, ring_id: u64) -> io::Result<(Self, Header)> {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
+            .mode(0o600)
             .open(path)?;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         let mut existing = [0_u8; HEADER_SIZE];
         if let Ok(header) = file
             .read_exact_at(&mut existing, 0)
@@ -500,6 +504,10 @@ mod tests {
             };
             ring.append(&mut header, &record).expect("append");
         }
+        let mode = std::os::unix::fs::PermissionsExt::mode(
+            &std::fs::metadata(&path).expect("ring").permissions(),
+        );
+        assert_eq!(mode & 0o777, 0o600, "only its owner reads it");
         let reader = Ring::open(&path).expect("open");
         let header = reader.header().expect("header");
         assert_eq!(

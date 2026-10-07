@@ -239,7 +239,7 @@ impl Facts {
         }
         if text != self.written {
             let temporary = self.path.with_extension("tmp");
-            if std::fs::write(&temporary, &text).is_ok()
+            if crate::write_private(&temporary, text.as_bytes()).is_ok()
                 && std::fs::rename(&temporary, &self.path).is_ok()
             {
                 self.written = text;

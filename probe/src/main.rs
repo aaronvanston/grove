@@ -156,13 +156,34 @@ fn own_usage() -> (u64, u64) {
     (time(&own) + time(&children), peak_kb)
 }
 
+/// Writes a file only its owner may read.
+fn write_private(path: &Path, text: &[u8]) -> std::io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(text)
+}
+
 fn run(dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
     std::fs::create_dir_all(dir)
+        .and_then(|()| std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)))
         .unwrap_or_else(|error| fail(&format!("{}: {error}", dir.display())));
+    // A folder from an older release may hold files others could read.
+    for name in ["facts", "pid"] {
+        let _ = std::fs::set_permissions(dir.join(name), std::fs::Permissions::from_mode(0o600));
+    }
     let ring_id = (now_ms() as u64) ^ (u64::from(std::process::id()) << 32);
     let (ring, mut header) = Ring::open_writer(&dir.join("ring"), ring_id)
         .unwrap_or_else(|error| fail(&format!("ring: {error}")));
-    let _ = std::fs::write(dir.join("pid"), format!("{}\n", std::process::id()));
+    let _ = write_private(
+        &dir.join("pid"),
+        format!("{}\n", std::process::id()).as_bytes(),
+    );
     let mut sampler = sampler::Sampler::new();
     let mut facts = facts::Facts::new(dir);
     let interval = i64::from(header.interval_ms);

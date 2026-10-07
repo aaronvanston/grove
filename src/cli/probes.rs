@@ -80,9 +80,15 @@ fn fetch_archive(from: &str, archive: &str) -> Result<Vec<u8>, AppError> {
 
 /// The shell script that installs the probe from the archive on stdin
 /// into "$1" (or ~/.grove-probe), and supervises it unless "$2" is "no".
+/// The folder and its readings are its owner's alone, and installing over
+/// an older install tightens what is already there.
 const INSTALL: &str = r#"set -eu
 dir=${1:-"$HOME/.grove-probe"}
-mkdir -p "$dir/data"
+(umask 077 && mkdir -p "$dir/data")
+chmod 700 "$dir" "$dir/data"
+for file in ring facts pid; do
+  if [ -f "$dir/data/$file" ]; then chmod 600 "$dir/data/$file"; fi
+done
 new="$dir/.grove-probe.new"
 tar -xzOf - grove-probe > "$new"
 chmod 755 "$new"
