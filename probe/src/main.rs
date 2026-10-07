@@ -23,7 +23,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use grove_probe::{Header, Ring, facts_frame};
+use grove_probe::{EchoRequests, Header, Ring, echo_frame, facts_frame};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -190,7 +190,8 @@ fn run(dir: &Path) {
 
 /// `read` writes the header, the facts and every reading after `since`,
 /// then ends; `follow` keeps writing readings as they land and the facts
-/// whenever they change, until the reader goes away.
+/// whenever they change, until the reader goes away, and answers each
+/// echo token on stdin at once.
 fn stream(args: &Args, follow: bool) {
     let path = args.dir.join("ring");
     let ring = Ring::open(&path)
@@ -239,15 +240,17 @@ fn stream(args: &Args, follow: bool) {
             since = record.seq;
         }
         let _ = std::io::stdout().flush();
-        match &mut waiter {
-            // A reader that left, or a ring that was removed, ends the
-            // stream.
-            Some(waiter) => {
-                if waiter.wait(Duration::from_secs(30)) || !path.exists() {
-                    return;
-                }
-            }
-            None => return,
+        let Some(waiter) = &mut waiter else {
+            return;
+        };
+        let wake = waiter.wait(Duration::from_secs(30));
+        for token in wake.echoes {
+            write(&echo_frame(token));
+        }
+        let _ = std::io::stdout().flush();
+        // A reader that left, or a ring that was removed, ends the stream.
+        if wake.gone || !path.exists() {
+            return;
         }
     }
 }
@@ -255,14 +258,26 @@ fn stream(args: &Args, follow: bool) {
 /// Sleeps until the ring file is written, without polling: inotify on
 /// Linux, kqueue on macOS. It also watches stdout, so a follower whose
 /// reader went away (the SSH session ended) notices at once and exits
-/// instead of waiting for the next reading to fail.
+/// instead of waiting for the next reading to fail, and stdin for echo
+/// tokens until it closes.
 struct Waiter {
     fd: i32,
+    input: i32,
+    requests: EchoRequests,
+}
+
+/// What woke a follower: its reader went away, or asked for echoes.
+struct Wake {
+    gone: bool,
+    echoes: Vec<u64>,
 }
 
 impl Waiter {
-    /// True when the reader went away.
-    fn wait(&mut self, limit: Duration) -> bool {
+    fn wait(&mut self, limit: Duration) -> Wake {
+        let mut wake = Wake {
+            gone: false,
+            echoes: Vec::new(),
+        };
         let mut fds = [
             libc::pollfd {
                 fd: self.fd,
@@ -274,16 +289,38 @@ impl Waiter {
                 events: 0,
                 revents: 0,
             },
+            // A negative descriptor is skipped, once stdin has closed.
+            libc::pollfd {
+                fd: self.input,
+                events: libc::POLLIN,
+                revents: 0,
+            },
         ];
-        // SAFETY: two pollfds, valid for the call.
-        let ready = unsafe { libc::poll(fds.as_mut_ptr(), 2, limit.as_millis() as i32) };
-        if ready > 0 && fds[1].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
-            return true;
+        // SAFETY: three pollfds, valid for the call.
+        let ready = unsafe { libc::poll(fds.as_mut_ptr(), 3, limit.as_millis() as i32) };
+        if ready <= 0 {
+            return wake;
         }
-        if ready > 0 && fds[0].revents & libc::POLLIN != 0 {
+        if fds[1].revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+            wake.gone = true;
+            return wake;
+        }
+        if fds[0].revents & libc::POLLIN != 0 {
             self.drain();
         }
-        false
+        if fds[2].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+            let mut buffer = [0_u8; 256];
+            // SAFETY: reads what poll said is waiting into the buffer.
+            let read = unsafe { libc::read(self.input, buffer.as_mut_ptr().cast(), buffer.len()) };
+            if read > 0 {
+                wake.echoes = self.requests.feed(&buffer[..read as usize]);
+            } else {
+                // Closed (or /dev/null): nothing more will come, and an
+                // end of file would otherwise wake every poll.
+                self.input = -1;
+            }
+        }
+        wake
     }
 }
 
@@ -297,7 +334,11 @@ impl Waiter {
             libc::inotify_add_watch(fd, name.as_ptr(), libc::IN_MODIFY);
             fd
         };
-        Self { fd }
+        Self {
+            fd,
+            input: 0,
+            requests: EchoRequests::default(),
+        }
     }
 
     fn drain(&mut self) {
@@ -325,7 +366,11 @@ impl Waiter {
             libc::kevent(queue, &change, 1, std::ptr::null_mut(), 0, std::ptr::null());
             queue
         };
-        Self { fd }
+        Self {
+            fd,
+            input: 0,
+            requests: EchoRequests::default(),
+        }
     }
 
     fn drain(&mut self) {

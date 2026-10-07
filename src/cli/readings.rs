@@ -52,7 +52,7 @@ enum Source {
 }
 
 /// How fresh a streamed reading must be for `sample` to answer with it.
-const LIVE_FRESH_MS: i64 = 2 * grove_probe::INTERVAL_MS as i64 + 1000;
+pub const LIVE_FRESH_MS: i64 = 2 * grove_probe::INTERVAL_MS as i64 + 1000;
 
 /// Reads every machine: the latest streamed reading when one is fresh,
 /// else its probe's newest reading, else the sample script; remote
@@ -400,6 +400,23 @@ pub fn current_health(
         Some(latest) if now - latest.taken_at <= STALE_AFTER_MS => latest.reading["health"].clone(),
         _ => json!({ "score": null, "status": "pending", "reason": null }),
     })
+}
+
+/// The round trip a live stream measured, from its latest reading while
+/// that is fresh: timed over the stream's own connection, so it holds for
+/// machines behind a jump host too.
+pub fn streamed_round_trip(
+    store: &Store,
+    machine: &Machine,
+    now: i64,
+) -> Result<Option<f64>, AppError> {
+    if machine.probe.is_none() {
+        return Ok(None);
+    }
+    Ok(store
+        .latest(&machine.name)?
+        .filter(|latest| now - latest.taken_at <= LIVE_FRESH_MS)
+        .and_then(|latest| latest.reading["latency_ms"].as_f64()))
 }
 
 /// CPU and GPU temperatures share one cell.

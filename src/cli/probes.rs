@@ -298,13 +298,16 @@ pub fn status(context: &Context) -> Result<Done, AppError> {
         .into_iter()
         .filter(|machine| machine.probe.is_some())
         .collect();
+    // `version` names the release on disk; every release has it, so an
+    // older probe says what it is too.
     let answers = transport::each(&machines, machines.len(), |machine| {
         let probe = machine.probe.as_ref().expect("filtered");
         let words = [
-            format!("{}/grove-probe", probe.dir),
-            "status".into(),
-            "--dir".into(),
-            format!("{}/data", probe.dir),
+            "sh".to_owned(),
+            "-c".to_owned(),
+            r#""$1/grove-probe" status --dir "$1/data" && "$1/grove-probe" version"#.to_owned(),
+            "sh".to_owned(),
+            probe.dir.clone(),
         ];
         let (mut command, program) = transport::command_on(machine, &store.home, &words);
         transport::run(&mut command, program, None, Duration::from_secs(15))
@@ -321,6 +324,12 @@ pub fn status(context: &Context) -> Result<Done, AppError> {
                 .and_then(|value| value.trim().parse::<i64>().ok())
         };
         let running = ran.ok();
+        let version = ran.stdout.lines().find_map(|line| {
+            let mut words = line.split_whitespace();
+            (words.next() == Some("grove-probe"))
+                .then(|| words.next().map(str::to_owned))
+                .flatten()
+        });
         let latest = store.latest_live(&machine.name)?.map(|(at, _)| at);
         records.push(json!({
             "clock_offset_ms": probe.clock_offset_ms,
@@ -333,6 +342,7 @@ pub fn status(context: &Context) -> Result<Done, AppError> {
             "read_seq": probe.seq,
             "rss_kb": value("probe_rss_kb"),
             "running": running,
+            "version": version,
         }));
         rows.push(vec![
             if running {
@@ -342,6 +352,7 @@ pub fn status(context: &Context) -> Result<Done, AppError> {
             },
             machine.name.clone(),
             probe.dir.clone(),
+            version.clone().unwrap_or_else(|| "-".into()),
             value("last_seq").map_or("-".into(), |seq| seq.to_string()),
             probe.seq.to_string(),
         ]);
@@ -353,7 +364,7 @@ pub fn status(context: &Context) -> Result<Done, AppError> {
             ui.command(&format!("{NAME} probe install <name>"))
         )
     } else {
-        ui.table(&["", "Name", "Folder", "Newest", "Read"], &rows)
+        ui.table(&["", "Name", "Folder", "Version", "Newest", "Read"], &rows)
     };
     Ok(Done::new(Value::Array(records), human))
 }

@@ -324,10 +324,16 @@ pub fn status(context: &Context) -> Result<Done, AppError> {
         let reachable = probe.ok();
         up += usize::from(reachable);
         let error = (!reachable).then(|| probe.failure());
-        let latency = reachable.then(|| round1(probe.elapsed.as_secs_f64() * 1000.0));
+        // A live stream's echoes beat the time a fresh SSH run took, which
+        // includes starting a shell.
+        let streamed = super::readings::streamed_round_trip(&store, machine, checked_at)?;
+        let latency = reachable
+            .then(|| streamed.unwrap_or_else(|| round1(probe.elapsed.as_secs_f64() * 1000.0)));
         let mut record = machine_record(machine);
         record["error"] = json!(error);
         record["latency_ms"] = crate::output::opt_num(latency);
+        record["latency_source"] =
+            json!(latency.map(|_| if streamed.is_some() { "stream" } else { "ssh" }));
         record["reachable"] = json!(reachable);
         record["health"] = super::readings::current_health(&store, machine, reachable, checked_at)?;
         rows.push(vec![

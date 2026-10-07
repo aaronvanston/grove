@@ -1,9 +1,12 @@
 //! Collecting from machines' probes: turning probe readings into samples,
 //! catching up from a ring, and keeping one stream per machine open,
 //! reconnecting and resuming from the last sequence number after any gap.
+//! Each stream also times round trips to its machine with echoes over
+//! the same connection, so no other process, and no ICMP, is needed, and
+//! a jump host or proxy command in the way is measured along with it.
 
-use std::collections::HashMap;
-use std::io::Read;
+use std::collections::{HashMap, VecDeque};
+use std::io::{Read, Write};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -23,6 +26,8 @@ use crate::transport;
 /// What a machine said about itself in its latest facts frame.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ProbeFacts {
+    /// The running probe's release; None for one too old to say.
+    pub probe_version: Option<String>,
     pub hostname: String,
     pub os: String,
     pub arch: String,
@@ -46,6 +51,7 @@ pub fn parse_facts(text: &str, offset_ms: i64) -> ProbeFacts {
             .map(|value| (*value).to_owned())
     };
     ProbeFacts {
+        probe_version: text("probe_version"),
         hostname: text("hostname").unwrap_or_default(),
         os: text("os").unwrap_or_default(),
         arch: text("arch").unwrap_or_default(),
@@ -166,6 +172,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Header, Option<String>, Option<Record>), 
         match frame {
             Frame::Facts(text) => facts = Some(text),
             Frame::Reading(record) => last = Some(record),
+            Frame::Echo(_) => {}
         }
     }
     Ok((header, facts, last))
@@ -190,6 +197,91 @@ pub fn clock_offset(machine: &Machine, home: &std::path::Path) -> Option<i64> {
     Some(theirs - (before + after) / 2)
 }
 
+/// An echo goes out this often once a stream is up.
+const ECHO_EVERY: Duration = Duration::from_secs(10);
+/// An echo not answered in this long counts as lost.
+const ECHO_TIMEOUT: Duration = Duration::from_secs(5);
+/// The round trip is the median of the last this many echoes.
+const ECHO_KEPT: usize = 5;
+/// Echoes stop after this many go unanswered in a row, so a probe that
+/// never reads them can't fill the connection's buffers.
+const ECHO_GIVE_UP: u32 = 3;
+
+/// One stream's round trips: an echo every `ECHO_EVERY`, one at a time,
+/// and the median of the last few answers, so one slow reply doesn't read
+/// as a spike. Times are passed in, so the logic runs on any clock.
+#[derive(Debug, Default)]
+pub struct Echoes {
+    /// The probe said which release it is, so it answers echoes.
+    answers: bool,
+    next_token: u64,
+    pending: Option<(u64, Instant)>,
+    last_sent: Option<Instant>,
+    /// The latest outcomes, oldest first: a round trip, or None for lost.
+    kept: VecDeque<Option<f64>>,
+    unanswered: u32,
+}
+
+impl Echoes {
+    fn keep(&mut self, outcome: Option<f64>) {
+        if self.kept.len() == ECHO_KEPT {
+            self.kept.pop_front();
+        }
+        self.kept.push_back(outcome);
+    }
+
+    /// The token to send now, if one is due. A pending echo past its
+    /// timeout is counted lost first.
+    pub fn due(&mut self, now: Instant) -> Option<u64> {
+        if let Some((_, sent)) = self.pending
+            && now.duration_since(sent) >= ECHO_TIMEOUT
+        {
+            self.pending = None;
+            self.unanswered += 1;
+            self.keep(None);
+        }
+        let waited = self
+            .last_sent
+            .is_none_or(|sent| now.duration_since(sent) >= ECHO_EVERY);
+        if !self.answers || self.pending.is_some() || !waited || self.unanswered >= ECHO_GIVE_UP {
+            return None;
+        }
+        self.next_token += 1;
+        self.pending = Some((self.next_token, now));
+        self.last_sent = Some(now);
+        Some(self.next_token)
+    }
+
+    /// Takes in an answer. An answer to a lost or unknown echo is ignored.
+    pub fn answered(&mut self, token: u64, now: Instant) {
+        let Some((pending, sent)) = self.pending else {
+            return;
+        };
+        if pending != token {
+            return;
+        }
+        self.pending = None;
+        self.unanswered = 0;
+        let ms = now.duration_since(sent).as_secs_f64() * 1000.0;
+        self.keep(Some(crate::output::round1(ms)));
+    }
+
+    /// The median of the answered echoes among the last few; None when
+    /// none of them was answered.
+    pub fn median(&self) -> Option<f64> {
+        let mut times: Vec<f64> = self.kept.iter().flatten().copied().collect();
+        times.sort_by(f64::total_cmp);
+        let count = times.len();
+        match count {
+            0 => None,
+            _ if count % 2 == 1 => Some(times[count / 2]),
+            _ => Some(crate::output::round1(
+                (times[count / 2 - 1] + times[count / 2]) / 2.0,
+            )),
+        }
+    }
+}
+
 /// What a stream thread tells the collector.
 enum Message {
     Connected {
@@ -200,6 +292,11 @@ enum Message {
     Facts {
         index: usize,
         text: String,
+    },
+    /// The stream's round trip changed.
+    RoundTrip {
+        index: usize,
+        ms: Option<f64>,
     },
     Reading {
         index: usize,
@@ -234,7 +331,7 @@ fn follow(
         let (mut command, _) = transport::command_on(&machine, &home, &words);
         use std::os::unix::process::CommandExt;
         command
-            .stdin(Stdio::null())
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .process_group(0);
@@ -244,10 +341,11 @@ fn follow(
             Ok(mut child) => {
                 child_pid.store(child.id() as i32, Ordering::SeqCst);
                 let stdout = child.stdout.take().expect("piped");
+                let echo = child.stdin.take();
                 // The clock is read once the stream is up, so the round trip
                 // rides its shared connection and is short and even.
                 let offset = || clock_offset(&machine, &home).unwrap_or(probe.clock_offset_ms);
-                let outcome = read_stream(index, stdout, offset, &since, &sender);
+                let outcome = read_stream(index, stdout, echo, offset, &since, &sender);
                 // SAFETY: signals only the process group this thread started.
                 unsafe { libc::kill(-(child.id() as i32), libc::SIGTERM) };
                 let _ = child.wait();
@@ -267,9 +365,13 @@ fn follow(
     }
 }
 
+/// Reads one stream until it ends, sending echoes down `echo` (the
+/// stream's stdin) as they fall due. Readings arrive every two seconds,
+/// so checking after each frame keeps the cadence without a thread.
 fn read_stream(
     index: usize,
     input: impl Read,
+    mut echo: Option<impl Write>,
     offset: impl FnOnce() -> i64,
     since: &std::sync::atomic::AtomicU64,
     sender: &mpsc::Sender<Message>,
@@ -283,8 +385,37 @@ fn read_stream(
         header,
         offset: offset(),
     });
+    let mut echoes = Echoes::default();
+    let mut round_trip = None;
     loop {
-        match reader.next_frame() {
+        let frame = reader.next_frame();
+        match &frame {
+            Ok(Some(Frame::Echo(token))) => echoes.answered(*token, Instant::now()),
+            // Only a probe that names its release answers echoes.
+            Ok(Some(Frame::Facts(text))) => {
+                echoes.answers =
+                    echo.is_some() && text.lines().any(|line| line.starts_with("probe_version="));
+            }
+            _ => {}
+        }
+        if let Some(token) = echoes.due(Instant::now())
+            && echo.as_mut().is_some_and(|pipe| {
+                pipe.write_all(&token.to_le_bytes())
+                    .and_then(|()| pipe.flush())
+                    .is_err()
+            })
+        {
+            echo = None;
+        }
+        if echoes.median() != round_trip {
+            round_trip = echoes.median();
+            let _ = sender.send(Message::RoundTrip {
+                index,
+                ms: round_trip,
+            });
+        }
+        match frame {
+            Ok(Some(Frame::Echo(_))) => {}
             Ok(Some(Frame::Facts(text))) => {
                 let _ = sender.send(Message::Facts { index, text });
             }
@@ -312,6 +443,7 @@ pub struct Tally {
     pub latencies_ms: Vec<i64>,
     pub last_error: Option<String>,
     facts: ProbeFacts,
+    round_trip_ms: Option<f64>,
     offset: i64,
     ring_id: Option<i64>,
     seq: u64,
@@ -439,6 +571,7 @@ fn apply(
                 let tally = &mut tallies[index];
                 tally.connects += 1;
                 tally.offset = offset;
+                tally.round_trip_ms = None;
                 let ring_id = header.ring_id as i64;
                 // A new ring numbers its readings from 1 again.
                 if tally.ring_id.is_some_and(|known| known != ring_id) {
@@ -472,10 +605,12 @@ fn apply(
                         "model": facts.facts.model,
                         "os": facts.os,
                         "os_version": facts.facts.os_version,
+                        "probe_version": facts.probe_version,
                         "product_name": facts.facts.product_name,
                     }),
                 });
             }
+            Message::RoundTrip { index, ms } => tallies[index].round_trip_ms = ms,
             Message::Reading {
                 index,
                 record,
@@ -497,9 +632,11 @@ fn apply(
                     received_at,
                     &record.encode(),
                 )?;
-                let Some(sample) = sample_from(&record, name, &tally.facts, tally.offset) else {
+                let Some(mut sample) = sample_from(&record, name, &tally.facts, tally.offset)
+                else {
                     continue;
                 };
+                sample.latency_ms = tally.round_trip_ms;
                 let minute = taken_at / 60_000;
                 if tally.minute.is_some_and(|current| current != minute)
                     && let Some(mut stored) = tally.pending.take()
@@ -598,18 +735,118 @@ fn apply(
 mod tests {
     use super::*;
 
+    /// Echoes go out one at a time every ten seconds once the probe says
+    /// it answers them; the round trip is the median of the last five, a
+    /// lost one drops out of it, and three lost in a row stop them.
+    #[test]
+    fn echoes_time_the_round_trip_and_give_up_on_a_silent_probe() {
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        let mut echoes = Echoes::default();
+        assert_eq!(
+            echoes.due(at(0)),
+            None,
+            "not before the probe says it answers"
+        );
+        echoes.answers = true;
+        let first = echoes.due(at(0)).expect("the first goes out at once");
+        assert_eq!(echoes.due(at(1_000)), None, "one at a time");
+        echoes.answered(first + 9, at(30));
+        assert_eq!(echoes.median(), None, "an unknown token is ignored");
+        echoes.answered(first, at(30));
+        assert_eq!(echoes.median(), Some(30.0));
+        assert_eq!(echoes.due(at(9_000)), None, "every ten seconds");
+        for (sent, took) in [(10_000, 40), (20_000, 400), (30_000, 20)] {
+            let token = echoes.due(at(sent)).expect("due");
+            echoes.answered(token, at(sent + took));
+        }
+        assert_eq!(
+            echoes.median(),
+            Some(35.0),
+            "one slow reply doesn't move it far"
+        );
+        // Lost: the pending one times out at the next check.
+        let lost = echoes.due(at(40_000)).expect("due");
+        assert_eq!(
+            echoes.due(at(45_000)),
+            None,
+            "counted lost, not due again yet"
+        );
+        echoes.answered(lost, at(45_100));
+        assert_eq!(
+            echoes.median(),
+            Some(35.0),
+            "a lost one drops out, and a late answer counts for nothing"
+        );
+        let mut silent = Echoes {
+            answers: true,
+            ..Echoes::default()
+        };
+        for second in [0, 10, 20] {
+            assert!(silent.due(at(second * 1000)).is_some(), "{second}");
+        }
+        assert_eq!(
+            silent.due(at(30_000)),
+            None,
+            "three lost in a row stop them"
+        );
+        assert_eq!(silent.median(), None);
+    }
+
+    /// A stream answering echoes gives its readings a round trip; one
+    /// from a probe that doesn't (it names no release) is never asked.
+    #[test]
+    fn a_stream_times_echoes_from_a_probe_that_answers() {
+        let header = Header {
+            capacity: grove_probe::CAPACITY,
+            interval_ms: grove_probe::INTERVAL_MS,
+            last_seq: 0,
+            ring_id: 1,
+            probe_cpu_us: 0,
+            probe_rss_kb: 0,
+        };
+        let run = |facts: &str| {
+            let mut wire = header.encode().to_vec();
+            wire.extend(grove_probe::facts_frame(facts));
+            wire.extend(grove_probe::echo_frame(1));
+            let (sender, receiver) = mpsc::channel();
+            let mut asked = Vec::new();
+            let since = std::sync::atomic::AtomicU64::new(0);
+            read_stream(0, wire.as_slice(), Some(&mut asked), || 0, &since, &sender);
+            drop(sender);
+            let trips: Vec<Option<f64>> = receiver
+                .iter()
+                .filter_map(|message| match message {
+                    Message::RoundTrip { ms, .. } => Some(ms),
+                    _ => None,
+                })
+                .collect();
+            (asked, trips)
+        };
+        let (asked, trips) = run("probe_version=0.1.3\nhostname=cedar-01\n");
+        assert_eq!(asked, 1_u64.to_le_bytes());
+        assert_eq!(trips.len(), 1, "{trips:?}");
+        assert!(trips[0].is_some_and(|ms| ms < 1000.0), "{trips:?}");
+        let (asked, trips) = run("hostname=cedar-01\n");
+        assert!(asked.is_empty() && trips.is_empty());
+    }
+
     /// A probe reading lands in the same sample a script reading of the
     /// same machine gives: tenths and hundredths back to their units,
     /// sentinels back to nothing, times onto this clock.
     #[test]
     fn a_probe_reading_becomes_a_sample() {
         let facts = parse_facts(
-            "hostname=cedar-01\nos=Linux\narch=x86_64\nmodel=MS-7D25\nconfig_commit=0123456789abcdef0123456789abcdef01234567\nconfig_verify=0\nconfig_checked_at_ms=10500\n",
+            "probe_version=0.1.3\nhostname=cedar-01\nos=Linux\narch=x86_64\nmodel=MS-7D25\nconfig_commit=0123456789abcdef0123456789abcdef01234567\nconfig_verify=0\nconfig_checked_at_ms=10500\n",
             500,
         );
         assert_eq!(
-            (facts.facts.model.as_deref(), facts.config.checked_at),
-            (Some("MS-7D25"), Some(10_000))
+            (
+                facts.facts.model.as_deref(),
+                facts.config.checked_at,
+                facts.probe_version.as_deref()
+            ),
+            (Some("MS-7D25"), Some(10_000), Some("0.1.3"))
         );
         let record = Record {
             seq: 9,

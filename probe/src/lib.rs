@@ -10,6 +10,12 @@
 //! writer fills slot `(seq - 1) % capacity` and then publishes `seq` in the
 //! header, so `last_seq` never points past a complete reading. A stream
 //! (`follow`) is the header followed by readings, back to back.
+//!
+//! A reader may write eight-byte echo tokens to a `follow` stream's stdin;
+//! the probe answers each at once with an echo frame carrying it, which
+//! is how the reader times the round trip. Echo frames are only ever sent
+//! in answer, so a reader that never asks sees the stream it always did,
+//! and the format version stays where it is.
 
 use std::fs::File;
 use std::io::{self, Read};
@@ -352,10 +358,43 @@ impl Ring {
 /// facts (as `key=value` lines) whenever they changed. A facts frame
 /// starts with eight zero bytes, where a reading starts with its nonzero
 /// sequence number, then a four-byte length and the text.
+///
+/// An echo frame is eight `0xFF` bytes (a sequence number no ring reaches)
+/// and the eight-byte token it answers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Frame {
     Reading(Record),
     Facts(String),
+    Echo(u64),
+}
+
+const ECHO_MARK: [u8; 8] = [0xFF; 8];
+
+pub fn echo_frame(token: u64) -> [u8; 16] {
+    let mut frame = [0_u8; 16];
+    frame[..8].copy_from_slice(&ECHO_MARK);
+    frame[8..].copy_from_slice(&token.to_le_bytes());
+    frame
+}
+
+/// Splits what arrives on a stream's stdin into echo tokens, eight bytes
+/// each, keeping a token cut across two reads until the rest comes.
+#[derive(Debug, Default)]
+pub struct EchoRequests {
+    pending: Vec<u8>,
+}
+
+impl EchoRequests {
+    pub fn feed(&mut self, bytes: &[u8]) -> Vec<u64> {
+        self.pending.extend_from_slice(bytes);
+        let whole = self.pending.len() / 8 * 8;
+        let tokens = self.pending[..whole]
+            .chunks_exact(8)
+            .map(|chunk| u64::from_le_bytes(chunk.try_into().expect("eight bytes")))
+            .collect();
+        self.pending.drain(..whole);
+        tokens
+    }
 }
 
 pub fn facts_frame(text: &str) -> Vec<u8> {
@@ -384,6 +423,11 @@ impl<R: Read> StreamReader<R> {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
             Err(error) => return Err(error),
+        }
+        if bytes[..8] == ECHO_MARK {
+            let mut token = [0_u8; 8];
+            self.input.read_exact(&mut token)?;
+            return Ok(Some(Frame::Echo(u64::from_le_bytes(token))));
         }
         if bytes[..8] == [0; 8] {
             let mut length = [0_u8; 4];
@@ -481,6 +525,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Tokens arrive whole however the pipe splits them.
+    #[test]
+    fn echo_tokens_are_read_whole_across_reads() {
+        let mut requests = EchoRequests::default();
+        let (one, two) = (1_u64.to_le_bytes(), 0x0102_0304_0506_0708_u64.to_le_bytes());
+        assert_eq!(requests.feed(&one[..5]), Vec::<u64>::new());
+        let mut rest = one[5..].to_vec();
+        rest.extend(two);
+        assert_eq!(requests.feed(&rest), [1, 0x0102_0304_0506_0708]);
+        assert_eq!(requests.feed(&[]), Vec::<u64>::new());
+    }
+
     /// A stream's frames come back as they were sent.
     #[test]
     fn a_stream_carries_readings_and_facts() {
@@ -494,6 +550,7 @@ mod tests {
         };
         let mut wire = header.encode().to_vec();
         wire.extend(facts_frame("hostname=cedar-01\n"));
+        wire.extend(echo_frame(7));
         wire.extend(
             Record {
                 seq: 2,
@@ -507,6 +564,7 @@ mod tests {
             reader.next_frame().unwrap(),
             Some(Frame::Facts("hostname=cedar-01\n".into()))
         );
+        assert_eq!(reader.next_frame().unwrap(), Some(Frame::Echo(7)));
         assert!(
             matches!(reader.next_frame().unwrap(), Some(Frame::Reading(record)) if record.seq == 2)
         );

@@ -226,7 +226,8 @@ impl Facts {
             self.config_at = Some(now);
             self.checked_at_ms = now_ms;
         }
-        let mut text = self.static_lines.clone();
+        let mut text = format!("probe_version={}\n", env!("CARGO_PKG_VERSION"));
+        text.push_str(&self.static_lines);
         if let Some(commit) = &self.config.commit {
             text.push_str(&format!("config_commit={commit}\n"));
         }

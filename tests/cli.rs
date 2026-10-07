@@ -656,8 +656,10 @@ fn a_stream_collects_from_a_running_probe() {
 }
 
 /// With --jsonl a stream reports as it goes: the connection, the
-/// machine's facts and each new latest reading, one record a line, then
-/// the result. The registry says where the probe lives.
+/// machine's facts (naming the probe's release) and each new latest
+/// reading with the round trip its echoes measured, one record a line,
+/// then the result. The registry says where the probe lives, status
+/// takes the stream's round trip, and probe status names the release.
 #[test]
 fn a_stream_reports_each_reading_as_a_line() {
     let sandbox = Sandbox::new();
@@ -679,9 +681,16 @@ fn a_stream_reports_each_reading_as_a_line() {
     let listed = sandbox.run(&["list", "--json"]).data();
     assert_eq!(listed[0]["probe"]["dir"], dir.as_str());
     let streamed = sandbox.run(&["stream", "here", "--for", "7s", "--jsonl"]);
+    let status = sandbox.run(&["status", "here", "--json"]).data();
+    let probes = sandbox.run(&["probe", "status", "here", "--json"]).data();
     let _ = probe.kill();
     let _ = probe.wait();
     assert_eq!(streamed.code, 0, "{}", streamed.stderr);
+    assert_eq!(
+        status["machines"][0]["latency_source"], "stream",
+        "{status}"
+    );
+    assert_eq!(probes[0]["version"], env!("CARGO_PKG_VERSION"), "{probes}");
     let lines: Vec<serde_json::Value> = streamed
         .stdout
         .lines()
@@ -707,6 +716,20 @@ fn a_stream_reports_each_reading_as_a_line() {
             "{line}"
         );
     }
+    // The first facts can come before a just-started probe wrote any.
+    let facts = lines
+        .iter()
+        .rfind(|line| line["type"] == "facts")
+        .expect("facts");
+    assert_eq!(
+        facts["data"]["probe_version"],
+        env!("CARGO_PKG_VERSION"),
+        "{facts}"
+    );
     let rates = &readings[readings.len() - 1]["data"]["reading"];
     assert!(rates["net_rx_bps"].is_number(), "{rates}");
+    assert!(
+        rates["latency_ms"].as_f64().is_some_and(|ms| ms < 1000.0),
+        "{rates}"
+    );
 }

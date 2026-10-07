@@ -1,6 +1,6 @@
 # grove command reference
 
-The commands of grove 0.1.2. This page is kept in step with `src/catalog.json`; `grove schema --json` and `grove describe <command>` print the same catalog from the binary.
+The commands of grove 0.1.3. This page is kept in step with `src/catalog.json`; `grove schema --json` and `grove describe <command>` print the same catalog from the binary.
 
 Every command also takes the global flags: `--json` or `--jsonl` for machine output, `--compact`, `--color <when>` or `--no-color`, `--non-interactive`, `-q, --quiet` and `--verbose`.
 
@@ -79,7 +79,7 @@ grove rm cam-mini --yes --json
 
 Check which machines are reachable right now
 
-Runs a no-op command on each machine over SSH and times the round trip, so reachable means the same management path every other command uses, including ssh_config aliases. Exits non-zero when any checked machine is unreachable, so the command works as a health gate in scripts.
+Runs a no-op command on each machine over SSH and times the round trip, so reachable means the same management path every other command uses, including ssh_config aliases. Where a stream is live, the latency is its echo round trip instead (latency_source says which). Exits non-zero when any checked machine is unreachable, so the command works as a health gate in scripts.
 
 ### Options
 
@@ -232,7 +232,7 @@ grove top cam-mini
 
 Collect from every probe continuously
 
-Keeps one SSH stream open to each machine's probe and writes every reading as it lands: the last hour at full resolution, one sample a minute into history (with its alerts and hooks), and the last reading for show, status and sample. After any gap it reconnects and resumes from the last reading it got, catching up from the probe's one-hour ring. Run it under your scheduler or service manager; it stops on Ctrl+C or SIGTERM. With --jsonl it also writes an event a line as each write lands: connected, facts, reading (the machine's new latest reading, the same record sample gives) and disconnected (with why), before the result.
+Keeps one SSH stream open to each machine's probe and writes every reading as it lands: the last hour at full resolution, one sample a minute into history (with its alerts and hooks), and the last reading for show, status and sample. After any gap it reconnects and resumes from the last reading it got, catching up from the probe's one-hour ring. Every ten seconds it times an echo over each stream, so each reading carries latency_ms, the median of the last five round trips, through any jump host or proxy command. Run it under your scheduler or service manager; it stops on Ctrl+C or SIGTERM. With --jsonl it also writes an event a line as each write lands: connected, facts (with the probe's release as probe_version), reading (the machine's new latest reading, the same record sample gives) and disconnected (with why), before the result.
 
 ### Options
 
@@ -293,7 +293,7 @@ grove probe uninstall cedar-01 --json
 
 Show each probe's position and what it costs
 
-Asks each probe how far its ring has got and how much CPU time and memory it has used, beside how far grove has read.
+Asks each probe which release it is, how far its ring has got and how much CPU time and memory it has used, beside how far grove has read.
 
 ### Examples
 

@@ -752,7 +752,7 @@
         "status"
       ],
       "summary": "Show each probe's position and what it costs",
-      "description": "Asks each probe how far its ring has got and how much CPU time and memory it has used, beside how far grove has read."
+      "description": "Asks each probe which release it is, how far its ring has got and how much CPU time and memory it has used, beside how far grove has read."
     },
     {
       "aliases": [],
@@ -1023,7 +1023,7 @@
         "status"
       ],
       "summary": "Check which machines are reachable right now",
-      "description": "Runs a no-op command on each machine over SSH and times the round trip, so reachable means the same management path every other command uses, including ssh_config aliases. Exits non-zero when any checked machine is unreachable, so the command works as a health gate in scripts."
+      "description": "Runs a no-op command on each machine over SSH and times the round trip, so reachable means the same management path every other command uses, including ssh_config aliases. Where a stream is live, the latency is its echo round trip instead (latency_source says which). Exits non-zero when any checked machine is unreachable, so the command works as a health gate in scripts."
     },
     {
       "aliases": [],
@@ -1053,7 +1053,7 @@
         "stream"
       ],
       "summary": "Collect from every probe continuously",
-      "description": "Keeps one SSH stream open to each machine's probe and writes every reading as it lands: the last hour at full resolution, one sample a minute into history (with its alerts and hooks), and the last reading for show, status and sample. After any gap it reconnects and resumes from the last reading it got, catching up from the probe's one-hour ring. Run it under your scheduler or service manager; it stops on Ctrl+C or SIGTERM. With --jsonl it also writes an event a line as each write lands: connected, facts, reading (the machine's new latest reading, the same record sample gives) and disconnected (with why), before the result."
+      "description": "Keeps one SSH stream open to each machine's probe and writes every reading as it lands: the last hour at full resolution, one sample a minute into history (with its alerts and hooks), and the last reading for show, status and sample. After any gap it reconnects and resumes from the last reading it got, catching up from the probe's one-hour ring. Every ten seconds it times an echo over each stream, so each reading carries latency_ms, the median of the last five round trips, through any jump host or proxy command. Run it under your scheduler or service manager; it stops on Ctrl+C or SIGTERM. With --jsonl it also writes an event a line as each write lands: connected, facts (with the probe's release as probe_version), reading (the machine's new latest reading, the same record sample gives) and disconnected (with why), before the result."
     },
     {
       "aliases": [],
