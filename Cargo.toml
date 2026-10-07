@@ -1,0 +1,48 @@
+[workspace]
+members = ["probe"]
+# Plain cargo build, clippy and test cover the probe too.
+default-members = [".", "probe"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "MIT"
+
+[package]
+name = "grove"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Machine registry with health and capacity at a glance"
+license.workspace = true
+publish = false
+# Docs and CI don't belong in a source package.
+exclude = ["docs/", ".github/"]
+
+[[bin]]
+name = "grove"
+path = "src/main.rs"
+
+[dependencies]
+# The probe's record format and ring, which streams are decoded with.
+grove-probe = { path = "probe" }
+libc = "0.2"
+# bundled: SQLite links statically, so the binary needs no system library.
+rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }
+# preserve_order: records keep their documented key order, which
+# scripts that parse the text rely on.
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[build-dependencies]
+# build.rs turns src/catalog.json into Rust statics; preserve_order keeps
+# the embedded JSON's keys in catalog.json's order.
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+# build.rs strips release binaries at link time instead; see link_args there.
+strip = false

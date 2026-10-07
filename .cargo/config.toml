@@ -1,0 +1,11 @@
+[env]
+# Compile options for the bundled SQLite, applied after libsqlite3-sys's
+# own. The store uses plain tables and indexes, so everything left out here
+# is SQLite it never calls: the private malloc zone (plain malloc serves
+# it), extension loading, full-text search, R*Trees, STAT4, dbstat, soundex,
+# the JSON functions, shared cache, deprecated APIs, UTF-16 and other
+# APIs rusqlite doesn't call (complete, get_table, progress, trace,
+# introspection pragmas, compile-option strings, test hooks). Each costs binary
+# size, and each library function it imports is a symbol dyld looks up on
+# every launch.
+LIBSQLITE3_FLAGS = "-DSQLITE_WITHOUT_ZONEMALLOC -USQLITE_ENABLE_LOAD_EXTENSION -DSQLITE_OMIT_LOAD_EXTENSION -USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLITE_ENABLE_FTS5 -USQLITE_ENABLE_RTREE -USQLITE_ENABLE_STAT4 -USQLITE_ENABLE_DBSTAT_VTAB -USQLITE_SOUNDEX -USQLITE_ENABLE_MEMORY_MANAGEMENT -DSQLITE_OMIT_JSON -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_SHARED_CACHE -DSQLITE_OMIT_UTF16 -DSQLITE_OMIT_COMPLETE -DSQLITE_OMIT_GET_TABLE -DSQLITE_OMIT_PROGRESS_CALLBACK -DSQLITE_OMIT_INTROSPECTION_PRAGMAS -DSQLITE_OMIT_TRACE -DSQLITE_OMIT_COMPILEOPTION_DIAGS -DSQLITE_UNTESTABLE"

@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-label="grove: a machine registry with health and capacity at a glance. Each machine is a tree in the grove; how full its canopy is shows how busy it is, and its color shows its health.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1017"/>
+      <stop offset="1" stop-color="#151a29"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#ffffff" stroke-opacity="0.035"/>
+    </pattern>
+    <clipPath id="crown0"><circle cx="136" cy="230" r="24"/><circle cx="118" cy="248" r="19"/><circle cx="154" cy="248" r="19"/></clipPath>
+    <clipPath id="fill0"><rect x="96" y="247.5" width="80" height="21.5"/></clipPath>
+    <clipPath id="crown1"><circle cx="262" cy="230" r="24"/><circle cx="244" cy="248" r="19"/><circle cx="280" cy="248" r="19"/></clipPath>
+    <clipPath id="fill1"><rect x="222" y="256.0" width="80" height="13.0"/></clipPath>
+    <clipPath id="crown2"><circle cx="388" cy="230" r="24"/><circle cx="370" cy="248" r="19"/><circle cx="406" cy="248" r="19"/></clipPath>
+    <clipPath id="fill2"><rect x="348" y="223.7" width="80" height="45.3"/></clipPath>
+    <clipPath id="crown3"><circle cx="514" cy="230" r="24"/><circle cx="496" cy="248" r="19"/><circle cx="532" cy="248" r="19"/></clipPath>
+    <clipPath id="fill3"><rect x="474" y="239.6" width="80" height="29.4"/></clipPath>
+    <clipPath id="crown4"><circle cx="640" cy="230" r="24"/><circle cx="622" cy="248" r="19"/><circle cx="658" cy="248" r="19"/></clipPath>
+    <clipPath id="fill4"><rect x="600" y="252.4" width="80" height="16.6"/></clipPath>
+    <clipPath id="crown5"><circle cx="766" cy="230" r="24"/><circle cx="748" cy="248" r="19"/><circle cx="784" cy="248" r="19"/></clipPath>
+    <clipPath id="fill5"><rect x="726" y="210.3" width="80" height="58.7"/></clipPath>
+    <clipPath id="crown6"><circle cx="892" cy="230" r="24"/><circle cx="874" cy="248" r="19"/><circle cx="910" cy="248" r="19"/></clipPath>
+    <clipPath id="fill6"><rect x="852" y="231.6" width="80" height="37.4"/></clipPath>
+    <clipPath id="crown7"><circle cx="1018" cy="230" r="24"/><circle cx="1000" cy="248" r="19"/><circle cx="1036" cy="248" r="19"/></clipPath>
+    <clipPath id="fill7"><rect x="978" y="267.0" width="80" height="2.0"/></clipPath>
+    <clipPath id="crown8"><circle cx="1144" cy="230" r="24"/><circle cx="1126" cy="248" r="19"/><circle cx="1162" cy="248" r="19"/></clipPath>
+    <clipPath id="fill8"><rect x="1104" y="244.4" width="80" height="24.6"/></clipPath>
+  </defs>
+  <rect width="1280" height="400" rx="20" fill="url(#bg)"/>
+  <rect width="1280" height="400" rx="20" fill="url(#grid)"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+    <text x="70" y="94" fill="#34d399" font-size="28" font-weight="700">◆</text>
+    <text x="106" y="100" fill="#e6e9f0" font-size="56" font-weight="700" letter-spacing="-1">grove</text>
+    <text x="74" y="140" fill="#9aa3b5" font-size="22">Machine registry with health and capacity at a glance</text>
+    <text x="74" y="180" fill="#6b7489" font-size="17" xml:space="preserve"><tspan fill="#22d3ee">$</tspan> grove stream     <tspan fill="#22d3ee">$</tspan> grove status     <tspan fill="#22d3ee">$</tspan> grove policy explain cedar-01</text>
+  </g>
+  <line x1="72" y1="312.5" x2="1208" y2="312.5" stroke="#262c3a" stroke-width="1"/>
+  <g>
+    <path d="M136 312 L136 256 M136 272 L127 260 M136 266 L146 254" stroke="#5a6378" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <g clip-path="url(#crown0)"><rect x="96" y="202" width="80" height="70" fill="#34d399" fill-opacity="0.14"/><rect x="96" y="202" width="80" height="70" fill="#34d399" fill-opacity="0.85" clip-path="url(#fill0)"/></g>
+    <circle cx="136" cy="230" r="24" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="118" cy="248" r="19" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="154" cy="248" r="19" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <text x="136" y="338" fill="#8a93a6" font-size="14" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">cam-mbp</text>
+  </g>
+  <g>
+    <path d="M262 312 L262 256 M262 272 L253 260 M262 266 L272 254" stroke="#5a6378" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <g clip-path="url(#crown1)"><rect x="222" y="202" width="80" height="70" fill="#34d399" fill-opacity="0.14"/><rect x="222" y="202" width="80" height="70" fill="#34d399" fill-opacity="0.85" clip-path="url(#fill1)"/></g>
+    <circle cx="262" cy="230" r="24" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="244" cy="248" r="19" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="280" cy="248" r="19" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <text x="262" y="338" fill="#8a93a6" font-size="14" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">cedar-01</text>
+  </g>
+  <g>
+    <path d="M388 312 L388 256 M388 272 L379 260 M388 266 L398 254" stroke="#5a6378" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <circle cx="388" cy="238" r="52" fill="#fbbf24" opacity="0.09"/>
+    <g clip-path="url(#crown2)"><rect x="348" y="202" width="80" height="70" fill="#fbbf24" fill-opacity="0.14"/><rect x="348" y="202" width="80" height="70" fill="#fbbf24" fill-opacity="0.85" clip-path="url(#fill2)"/></g>
+    <circle cx="388" cy="230" r="24" fill="none" stroke="#fbbf24" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="370" cy="248" r="19" fill="none" stroke="#fbbf24" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="406" cy="248" r="19" fill="none" stroke="#fbbf24" stroke-opacity="0.5" stroke-width="1.5"/>
+    <text x="388" y="338" fill="#8a93a6" font-size="14" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">cedar-02</text>
+  </g>
+  <g>
+    <path d="M514 312 L514 256 M514 272 L505 260 M514 266 L524 254" stroke="#5a6378" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <g clip-path="url(#crown3)"><rect x="474" y="202" width="80" height="70" fill="#34d399" fill-opacity="0.14"/><rect x="474" y="202" width="80" height="70" fill="#34d399" fill-opacity="0.85" clip-path="url(#fill3)"/></g>
+    <circle cx="514" cy="230" r="24" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="496" cy="248" r="19" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="532" cy="248" r="19" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <text x="514" y="338" fill="#8a93a6" font-size="14" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">oak-mini</text>
+  </g>
+  <g>
+    <path d="M640 312 L640 256 M640 272 L631 260 M640 266 L650 254" stroke="#5a6378" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <g clip-path="url(#crown4)"><rect x="600" y="202" width="80" height="70" fill="#34d399" fill-opacity="0.14"/><rect x="600" y="202" width="80" height="70" fill="#34d399" fill-opacity="0.85" clip-path="url(#fill4)"/></g>
+    <circle cx="640" cy="230" r="24" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="622" cy="248" r="19" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="658" cy="248" r="19" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <text x="640" y="338" fill="#8a93a6" font-size="14" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">ash-02</text>
+  </g>
+  <g>
+    <path d="M766 312 L766 256 M766 272 L757 260 M766 266 L776 254" stroke="#5a6378" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <circle cx="766" cy="238" r="52" fill="#f87171" opacity="0.09"/>
+    <g clip-path="url(#crown5)"><rect x="726" y="202" width="80" height="70" fill="#f87171" fill-opacity="0.14"/><rect x="726" y="202" width="80" height="70" fill="#f87171" fill-opacity="0.85" clip-path="url(#fill5)"/></g>
+    <circle cx="766" cy="230" r="24" fill="none" stroke="#f87171" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="748" cy="248" r="19" fill="none" stroke="#f87171" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="784" cy="248" r="19" fill="none" stroke="#f87171" stroke-opacity="0.5" stroke-width="1.5"/>
+    <text x="766" y="338" fill="#8a93a6" font-size="14" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">birch-03</text>
+  </g>
+  <g>
+    <path d="M892 312 L892 256 M892 272 L883 260 M892 266 L902 254" stroke="#5a6378" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <g clip-path="url(#crown6)"><rect x="852" y="202" width="80" height="70" fill="#34d399" fill-opacity="0.14"/><rect x="852" y="202" width="80" height="70" fill="#34d399" fill-opacity="0.85" clip-path="url(#fill6)"/></g>
+    <circle cx="892" cy="230" r="24" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="874" cy="248" r="19" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="910" cy="248" r="19" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <text x="892" y="338" fill="#8a93a6" font-size="14" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">elm-gpu</text>
+  </g>
+  <g>
+    <path d="M1018 312 L1018 256 M1018 272 L1009 260 M1018 266 L1028 254" stroke="#5a6378" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <circle cx="1018" cy="230" r="24" fill="none" stroke="#4a5368" stroke-width="2" stroke-dasharray="4 5"/>
+    <circle cx="1000" cy="248" r="19" fill="none" stroke="#4a5368" stroke-width="2" stroke-dasharray="4 5"/>
+    <circle cx="1036" cy="248" r="19" fill="none" stroke="#4a5368" stroke-width="2" stroke-dasharray="4 5"/>
+    <text x="1018" y="338" fill="#8a93a6" font-size="14" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">maple-01</text>
+  </g>
+  <g>
+    <path d="M1144 312 L1144 256 M1144 272 L1135 260 M1144 266 L1154 254" stroke="#5a6378" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <g clip-path="url(#crown8)"><rect x="1104" y="202" width="80" height="70" fill="#34d399" fill-opacity="0.14"/><rect x="1104" y="202" width="80" height="70" fill="#34d399" fill-opacity="0.85" clip-path="url(#fill8)"/></g>
+    <circle cx="1144" cy="230" r="24" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="1126" cy="248" r="19" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <circle cx="1162" cy="248" r="19" fill="none" stroke="#34d399" stroke-opacity="0.5" stroke-width="1.5"/>
+    <text x="1144" y="338" fill="#8a93a6" font-size="14" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">pine-04</text>
+  </g>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="15">
+    <circle cx="82" cy="365" r="7" fill="#34d399" fill-opacity="0.85"/>
+    <text x="98" y="370" fill="#8a93a6">each tree is a machine; a fuller canopy is a busier machine</text>
+    <circle cx="752" cy="365" r="7" fill="#fbbf24" fill-opacity="0.85"/>
+    <circle cx="772" cy="365" r="7" fill="#f87171" fill-opacity="0.85"/>
+    <circle cx="792" cy="365" r="7" fill="none" stroke="#4a5368" stroke-width="2" stroke-dasharray="3 3"/>
+    <text x="808" y="370" fill="#8a93a6">degraded, critical, unreachable</text>
+  </g>
+</svg>

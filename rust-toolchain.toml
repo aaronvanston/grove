@@ -1,0 +1,6 @@
+# One toolchain for local builds, CI and releases, so clippy and rustfmt
+# judge the code the same way everywhere.
+[toolchain]
+channel = "1.97.0"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

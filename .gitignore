@@ -1,0 +1,17 @@
+# Build output
+/target/
+dist/
+
+# Environment and credentials — never commit real values
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Machine-local agent settings
+.claude/settings.local.json
+
+# OS cruft
+.DS_Store

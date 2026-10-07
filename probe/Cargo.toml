@@ -1,0 +1,18 @@
+[package]
+name = "grove-probe"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Grove's resident sampler: kernel counters every 2 s into a ring file"
+license.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "grove-probe"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"

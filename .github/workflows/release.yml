@@ -1,0 +1,162 @@
+name: Release
+
+# A tag such as v0.1.0 that matches Cargo.toml's version publishes that
+# version: for each of four targets, one archive holding one root-owned
+# file named `grove` and one holding `grove-probe`, and SHA256SUMS with
+# `<hex>  <name>` lines. `grove probe install` reads the probe archives. Install scripts
+# rely on that layout, so it doesn't change between releases. CI has
+# already run the tests on the tagged commit.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: read
+        name: Read Cargo.toml's version
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "Cargo.toml version $version"
+      - name: Tag matches the crate version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          if [ "v${{ steps.read.outputs.version }}" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME doesn't match Cargo.toml version ${{ steps.read.outputs.version }}" >&2
+            exit 1
+          fi
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: darwin-arm64
+            target: aarch64-apple-darwin
+            runner: macos-latest
+          - name: darwin-x64
+            target: x86_64-apple-darwin
+            runner: macos-latest
+          - name: linux-arm64
+            target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - name: linux-x64
+            target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Add the target
+        run: rustup target add ${{ matrix.target }}
+      - name: Install musl tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Install Rosetta for the x64 probe
+        if: matrix.name == 'darwin-x64'
+        run: /usr/sbin/softwareupdate --install-rosetta --agree-to-license || true
+      - name: Build
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            # Static musl, so the binary needs no particular glibc; SQLite is
+            # compiled in by rusqlite's bundled build, with musl's compiler.
+            target_env="$(echo "${{ matrix.target }}" | tr '-' '_')"
+            export "CC_$target_env=musl-gcc"
+          fi
+          cargo build --release --locked --workspace --target ${{ matrix.target }}
+      - name: Probe the binary natively
+        run: |
+          binary="target/${{ matrix.target }}/release/grove"
+          if [ "${{ matrix.name }}" = darwin-x64 ]; then
+            native() { arch -x86_64 "$@"; }
+          else
+            native() { "$@"; }
+          fi
+          output="$(native "$binary" version --json)"
+          echo "$output"
+          echo "$output" | grep -q "\"version\": \"$VERSION\"" || { echo "the binary doesn't report $VERSION" >&2; exit 1; }
+          native "${binary}-probe" version --json | grep -q "\"version\":\"$VERSION\"" || { echo "the probe doesn't report $VERSION" >&2; exit 1; }
+          for file in "$binary" "${binary}-probe"; do
+            file "$file"
+            if [ "$RUNNER_OS" = Linux ]; then
+              file "$file" | grep -Eq "statically linked|static-pie linked" || { echo "$file is not static" >&2; exit 1; }
+            fi
+          done
+      - name: Package
+        run: |
+          mkdir -p dist
+          for program in grove grove-probe; do
+            stage="$RUNNER_TEMP/stage-$program"
+            mkdir -p "$stage"
+            cp "target/${{ matrix.target }}/release/$program" "$stage/$program"
+            chmod 755 "$stage/$program"
+            archive="$program-$VERSION-${{ matrix.name }}.tar.gz"
+            # No owner names or macOS metadata in the archive; it holds one
+            # file, owned by root.
+            if [ "$RUNNER_OS" = macOS ]; then
+              COPYFILE_DISABLE=1 tar -czf "dist/$archive" -C "$stage" --no-mac-metadata \
+                --uid 0 --gid 0 --uname root --gname root "$program"
+            else
+              tar -czf "dist/$archive" -C "$stage" --owner=0 --group=0 --numeric-owner "$program"
+            fi
+            tar -tvzf "dist/$archive"
+            [ "$(tar -tzf "dist/$archive")" = "$program" ] || { echo "the archive must hold one file named $program" >&2; exit 1; }
+            ls -l "dist/$archive" "$stage/$program"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: archive-${{ matrix.name }}
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: archive-*
+          path: release
+          merge-multiple: true
+      - name: Write SHA256SUMS
+        run: |
+          cd release
+          : >SHA256SUMS
+          for program in grove grove-probe; do
+            for name in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+              sha256sum "$program-$VERSION-$name.tar.gz" >>SHA256SUMS
+            done
+          done
+          cat SHA256SUMS
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" release/* $prerelease \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Builds for macOS and Linux on arm64 and x64. Check an archive against SHA256SUMS, extract it, and put grove on your PATH; grove probe install sends grove-probe to each machine."

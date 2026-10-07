@@ -1,0 +1,1133 @@
+{
+  "commands": [
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": true,
+          "variadic": false,
+          "description": "Unique machine name"
+        },
+        {
+          "name": "endpoint",
+          "required": true,
+          "variadic": false,
+          "description": "Hostname or address the machine is reached at"
+        }
+      ],
+      "examples": [
+        "grove add cam-mbp cam-mbp.local",
+        "grove add cedar-01 100.64.0.7 --port 22 --json",
+        "grove add cedar-01 100.64.0.7 --trust shared --power mains --locality office"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "SSH port used to reach the machine",
+          "flags": "--port <port>",
+          "defaultValue": 22
+        },
+        {
+          "collect": false,
+          "description": "Value for the trust label",
+          "flags": "--trust <value>"
+        },
+        {
+          "collect": false,
+          "description": "Value for the privacy label",
+          "flags": "--privacy <value>"
+        },
+        {
+          "collect": false,
+          "description": "Value for the power label",
+          "flags": "--power <value>"
+        },
+        {
+          "collect": false,
+          "description": "Value for the locality label",
+          "flags": "--locality <value>"
+        }
+      ],
+      "path": [
+        "add"
+      ],
+      "summary": "Register a machine with its endpoint",
+      "description": "Records a machine in the local registry. The endpoint is stored as given and is only used when a command reaches out, so unreachable machines can be registered ahead of time. Labels describe what the machine is: trust, privacy, power, and locality take free-form values and can be set here or later with 'grove label'. An endpoint of localhost, 127.0.0.1, or ::1 is this machine, which is read with sh directly instead of over SSH."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "metric",
+          "required": true,
+          "variadic": false,
+          "description": "Metric to watch: cpu, mem, disk, load1, swap, cpu_temp, battery, or down"
+        },
+        {
+          "name": "machine",
+          "required": false,
+          "variadic": false,
+          "description": "Machine the rule applies to; omit for fleet-wide"
+        }
+      ],
+      "examples": [
+        "grove alerts add cpu --above 90 --for 10m",
+        "grove alerts add swap --above 90 --for 10m",
+        "grove alerts add cpu_temp --above 85 --for 5m cedar-01",
+        "grove alerts add battery --below 20 --for 5m",
+        "grove alerts add down --for 5m"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Threshold the metric must stay above (not used for down)",
+          "flags": "--above <value>"
+        },
+        {
+          "collect": false,
+          "description": "Threshold the metric must stay below, for battery",
+          "flags": "--below <value>"
+        },
+        {
+          "collect": false,
+          "description": "Window the condition must hold for, such as 90s or 10m",
+          "flags": "--for <duration>"
+        }
+      ],
+      "path": [
+        "alerts",
+        "add"
+      ],
+      "summary": "Add or replace an alert rule",
+      "description": "Creates or replaces an alert rule. Threshold rules fire only when every sample across the window breaches the threshold, and clear only when every sample across the window is back on the safe side, so one spike never fires and one dip never clears. Most metrics breach upwards and take --above; battery breaches downwards and takes --below. A down rule fires when a machine stays unreachable past the window and cancels if contact returns first. A sample with no reading for the metric is no evidence either way, so a machine without the sensor never fires. A machine-specific rule overrides a fleet-wide rule for the same metric. Evaluation happens when samples are recorded, so alerting is only as fresh as the sampling cadence."
+    },
+    {
+      "aliases": [],
+      "arguments": [],
+      "examples": [
+        "grove alerts events",
+        "grove alerts events --limit 5 --json"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Maximum events to return",
+          "flags": "--limit <count>",
+          "defaultValue": 20
+        }
+      ],
+      "path": [
+        "alerts",
+        "events"
+      ],
+      "summary": "List recent alert fires and clears"
+    },
+    {
+      "aliases": [],
+      "arguments": [],
+      "examples": [
+        "grove alerts list",
+        "grove alerts list --json"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [],
+      "path": [
+        "alerts",
+        "list"
+      ],
+      "summary": "List alert rules"
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "metric",
+          "required": true,
+          "variadic": false,
+          "description": "Metric of the rule"
+        },
+        {
+          "name": "machine",
+          "required": false,
+          "variadic": false,
+          "description": "Machine scope of the rule; omit for the fleet-wide rule"
+        }
+      ],
+      "examples": [
+        "grove alerts rm cpu",
+        "grove alerts rm down web-01 --json"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [],
+      "path": [
+        "alerts",
+        "rm"
+      ],
+      "summary": "Remove an alert rule"
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "machine",
+          "required": false,
+          "variadic": false,
+          "description": "Limit the report to one machine"
+        }
+      ],
+      "examples": [
+        "grove alerts state",
+        "grove alerts state web-01",
+        "grove alerts state --json || echo 'something is alerting'"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [],
+      "path": [
+        "alerts",
+        "state"
+      ],
+      "summary": "Show current alert state; non-zero exit while firing",
+      "description": "Reports the current alert state for every rule and machine it applies to. Exits non-zero when any alert is firing, so the command composes as a gate the same way status does."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "shell",
+          "required": true,
+          "variadic": false,
+          "description": "bash, zsh, or fish"
+        }
+      ],
+      "examples": [
+        "grove completion zsh > ~/.zfunc/_grove",
+        "grove completion fish > ~/.config/fish/completions/grove.fish"
+      ],
+      "kind": "read",
+      "module": "system",
+      "options": [],
+      "path": [
+        "completion"
+      ],
+      "summary": "Generate a shell completion script"
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "command",
+          "required": true,
+          "variadic": true,
+          "description": "Command path, for example: alerts add"
+        }
+      ],
+      "examples": [
+        "grove describe alerts add",
+        "grove describe sample --json"
+      ],
+      "kind": "read",
+      "module": "system",
+      "options": [],
+      "path": [
+        "describe"
+      ],
+      "summary": "Describe one command and its contract"
+    },
+    {
+      "aliases": [],
+      "arguments": [],
+      "examples": [
+        "grove doctor",
+        "grove doctor --json"
+      ],
+      "kind": "read",
+      "module": "system",
+      "options": [],
+      "path": [
+        "doctor"
+      ],
+      "summary": "Check the local install and configuration",
+      "description": "Runs fast, offline checks. It does not contact the configured service."
+    },
+    {
+      "aliases": [],
+      "arguments": [],
+      "examples": [
+        "grove drift",
+        "grove drift --json",
+        "grove drift --quiet || echo 'fleet is not converged'"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Timeout in milliseconds for resolving the source head",
+          "flags": "--timeout <ms>",
+          "defaultValue": 10000
+        }
+      ],
+      "path": [
+        "drift"
+      ],
+      "summary": "Compare each machine's applied config against the source head",
+      "description": "Compares the config source commit each machine last applied against the head of the config source, and folds in whether the files that commit wrote still match it. The head is resolved on this machine, from the origin of the local config source clone, falling back to that clone's own commit when the remote cannot be reached; the answer says which was used. A machine is current when it applied the head and every file matches, outdated when it applied something else, and diverged when its files no longer match whatever it applied. Anything grove cannot see right now, an unreachable machine, a reading too old to describe now, or a machine with no config source at all, is unknown and reported as unknown rather than guessed at. Exit 0 means every machine is current, so the command composes as a gate before a rollout."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": true,
+          "variadic": false,
+          "description": "Machine to graph"
+        }
+      ],
+      "examples": [
+        "grove graph web-01",
+        "grove graph web-01 --since 1h --metric cpu",
+        "grove graph web-01 --since 7d --json"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Window to graph, for example 90m, 24h, 7d",
+          "flags": "--since <duration>",
+          "defaultValue": "24h"
+        },
+        {
+          "collect": false,
+          "description": "Graph a single metric: cpu, mem, swap, disk, load, temp, battery, net, or agents",
+          "flags": "--metric <metric>",
+          "choices": [
+            "cpu",
+            "mem",
+            "swap",
+            "disk",
+            "load",
+            "temp",
+            "battery",
+            "net",
+            "agents"
+          ]
+        },
+        {
+          "collect": false,
+          "description": "Chart width in characters",
+          "flags": "--width <columns>",
+          "defaultValue": 60
+        }
+      ],
+      "path": [
+        "graph"
+      ],
+      "summary": "Chart a machine's stored samples in the terminal",
+      "description": "Renders stored samples as terminal charts, one panel per metric, bucketed across the requested window. Empty buckets stay blank so downtime is visible instead of interpolated. JSON output returns the bucketed series for other tools to plot."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": true,
+          "variadic": false,
+          "description": "Machine to read"
+        }
+      ],
+      "examples": [
+        "grove history cam-mini",
+        "grove history cam-mini --limit 5 --json"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Maximum samples to return",
+          "flags": "--limit <count>",
+          "defaultValue": 20
+        }
+      ],
+      "path": [
+        "history"
+      ],
+      "summary": "List stored samples for a machine",
+      "description": "Lists stored samples newest first. Network rates are derived between consecutive samples, so two samples some seconds apart give a real transfer rate."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": true,
+          "variadic": false,
+          "description": "Unique hook name"
+        },
+        {
+          "name": "command",
+          "required": true,
+          "variadic": false,
+          "description": "Shell command to run, executed with sh -c"
+        },
+        {
+          "name": "machine",
+          "required": false,
+          "variadic": false,
+          "description": "Machine the hook applies to; omit for fleet-wide"
+        }
+      ],
+      "examples": [
+        "grove hooks add phone 'curl -fsS -d \"$GROVE_MACHINE $GROVE_METRIC is $GROVE_VALUE\" https://example.com/notify'",
+        "grove hooks add ops 'curl -fsS -H \"content-type: application/json\" --data-binary @- https://hooks.example.com/grove'",
+        "grove hooks add page-me '/usr/local/bin/page.sh' --on fire cam-mini"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Which transitions run the hook: fire, clear, or both",
+          "flags": "--on <events>",
+          "choices": [
+            "fire",
+            "clear",
+            "both"
+          ],
+          "defaultValue": "both"
+        }
+      ],
+      "path": [
+        "hooks",
+        "add"
+      ],
+      "summary": "Add or replace a command to run on alert transitions",
+      "description": "Registers a command to run when an alert fires or clears. grove ships no delivery of its own: the command is yours, so notification, paging, ticketing, and logging are all the same mechanism. The command runs through sh -c with the event in environment variables (GROVE_EVENT, GROVE_MACHINE, GROVE_METRIC, GROVE_THRESHOLD, GROVE_VALUE, GROVE_WINDOW, GROVE_AT) and the same event as one JSON object on stdin. Quote the command in single quotes so those variables survive to run time. A machine that has its own hooks uses those instead of the fleet-wide ones."
+    },
+    {
+      "aliases": [],
+      "arguments": [],
+      "examples": [
+        "grove hooks list",
+        "grove hooks list --json"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [],
+      "path": [
+        "hooks",
+        "list"
+      ],
+      "summary": "List configured hooks"
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": true,
+          "variadic": false,
+          "description": "Name of the hook to remove"
+        }
+      ],
+      "examples": [
+        "grove hooks rm phone",
+        "grove hooks rm ops --json"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [],
+      "path": [
+        "hooks",
+        "rm"
+      ],
+      "summary": "Remove a hook"
+    },
+    {
+      "aliases": [],
+      "arguments": [],
+      "examples": [
+        "grove hooks runs",
+        "grove hooks runs --limit 5 --json"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Maximum runs to return",
+          "flags": "--limit <count>",
+          "defaultValue": 20
+        }
+      ],
+      "path": [
+        "hooks",
+        "runs"
+      ],
+      "summary": "List recent hook runs",
+      "description": "Lists hook runs newest first, successful and failed. Hooks are best-effort and never change the exit code of a sample, so this log is where a command that started failing shows up."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": true,
+          "variadic": false,
+          "description": "Name of the hook to run"
+        }
+      ],
+      "examples": [
+        "grove hooks test phone",
+        "grove hooks test ops --json"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Which transition to simulate",
+          "flags": "--event <event>",
+          "choices": [
+            "fire",
+            "clear"
+          ],
+          "defaultValue": "fire"
+        }
+      ],
+      "path": [
+        "hooks",
+        "test"
+      ],
+      "summary": "Run one hook against a synthetic event",
+      "description": "Runs one hook against a synthetic event so the whole path is provable before an alert depends on it. The command receives the same environment variables and the same JSON on stdin it would receive for a real fire. The run is recorded alongside real runs, and the exit code of the command becomes the exit code here."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": true,
+          "variadic": false,
+          "description": "Machine to label"
+        }
+      ],
+      "examples": [
+        "grove label cam-mbp --trust personal --power battery",
+        "grove label cedar-01 --trust shared --json",
+        "grove label cedar-01 --privacy ''"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Value for the trust label",
+          "flags": "--trust <value>"
+        },
+        {
+          "collect": false,
+          "description": "Value for the privacy label",
+          "flags": "--privacy <value>"
+        },
+        {
+          "collect": false,
+          "description": "Value for the power label",
+          "flags": "--power <value>"
+        },
+        {
+          "collect": false,
+          "description": "Value for the locality label",
+          "flags": "--locality <value>"
+        }
+      ],
+      "path": [
+        "label"
+      ],
+      "summary": "Set trust, privacy, power, and locality on a machine",
+      "description": "Sets labels on a registered machine. The four keys are fixed and the values are free-form: trust says who controls the machine, privacy says what may live on it, power says what it runs on, and locality says where it is. grove stores and reports the values without interpreting them, and policy questions read them alongside the readings. Only the labels you pass change, and an empty value clears one."
+    },
+    {
+      "aliases": [
+        "ls"
+      ],
+      "arguments": [],
+      "examples": [
+        "grove list",
+        "grove ls --json"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [],
+      "path": [
+        "list"
+      ],
+      "summary": "List registered machines"
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "machine",
+          "required": true,
+          "variadic": false,
+          "description": "Machine to judge"
+        }
+      ],
+      "examples": [
+        "grove policy explain cam-mini",
+        "grove policy explain cam-mbp --json",
+        "grove policy explain cedar-01 --quiet || echo 'not now'"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Reachability timeout in milliseconds",
+          "flags": "--timeout <ms>",
+          "defaultValue": 10000
+        }
+      ],
+      "path": [
+        "policy",
+        "explain"
+      ],
+      "summary": "Say whether a machine may take new unattended work",
+      "description": "Answers whether a machine is eligible for new unattended work right now, and says why. It weighs reachability, how fresh the capacity reading is, the running session count against the cap that applies, quiet hours, and anything firing. Unknown fails closed: a machine grove cannot see is not eligible, because the honest answer when the evidence is missing is no. Exit 0 means eligible and exit 1 means ineligible or unknown, so the command composes as a gate. Nothing is enforced anywhere else; a caller that wants to respect policy comes through here."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "machine",
+          "required": false,
+          "variadic": false,
+          "description": "Machine whose policy to drop; omit for the fleet-wide row"
+        }
+      ],
+      "examples": [
+        "grove policy rm cam-mbp",
+        "grove policy rm --json"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [],
+      "path": [
+        "policy",
+        "rm"
+      ],
+      "summary": "Remove a policy row",
+      "description": "Drops a whole policy row. Dropping a machine's row leaves it under the fleet-wide policy; dropping the fleet-wide row leaves machines with only their own."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "machine",
+          "required": false,
+          "variadic": false,
+          "description": "Machine the policy applies to; omit for fleet-wide"
+        }
+      ],
+      "examples": [
+        "grove policy set --max-sessions 6",
+        "grove policy set --max-sessions 2 cam-mbp",
+        "grove policy set --quiet-hours 22:00-07:00",
+        "grove policy set --warn-sessions 10 --json"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Concurrent unattended agent sessions allowed",
+          "flags": "--max-sessions <count>"
+        },
+        {
+          "collect": false,
+          "description": "Local-time window to leave alone, such as 22:00-07:00",
+          "flags": "--quiet-hours <window>"
+        },
+        {
+          "collect": false,
+          "description": "Fleet-wide session count that raises an alert when crossed",
+          "flags": "--warn-sessions <count>"
+        }
+      ],
+      "path": [
+        "policy",
+        "set"
+      ],
+      "summary": "Set caps, quiet hours, and the concurrency warning",
+      "description": "Sets what the fleet is allowed to do. A cap limits how many unattended agent sessions may run on a machine, and a machine-specific cap overrides the fleet-wide one for that machine. Quiet hours are a local-time window the machine should be left alone in, and they scope the same way. The concurrency warning is fleet-wide only: when the fleet's total running sessions cross it, grove raises an alert event, so hooks deliver it like any other alert. Only the settings you pass change. Nothing is enforced; policy is what 'grove policy explain' reports on."
+    },
+    {
+      "aliases": [],
+      "arguments": [],
+      "examples": [
+        "grove policy show",
+        "grove policy show --json"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [],
+      "path": [
+        "policy",
+        "show"
+      ],
+      "summary": "Show configured policy and current fleet concurrency",
+      "description": "Lists every policy row with the fleet's current session total beside it, so a cap and what is running under it read together."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": true,
+          "variadic": false,
+          "description": "Machine to install the probe on"
+        }
+      ],
+      "examples": [
+        "grove probe install cedar-01",
+        "grove probe install cam-mbp --from ./dist --json"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Folder or release URL holding the archives and SHA256SUMS",
+          "flags": "--from <source>"
+        },
+        {
+          "collect": false,
+          "description": "Folder on the machine to install into (default ~/.grove-probe)",
+          "flags": "--dir <path>"
+        },
+        {
+          "collect": false,
+          "description": "Install without starting it under launchd or systemd",
+          "flags": "--no-service"
+        }
+      ],
+      "path": [
+        "probe",
+        "install"
+      ],
+      "summary": "Install or update the resident probe on a machine",
+      "description": "Finds the machine's platform, checks the matching grove-probe archive against SHA256SUMS on this machine, sends it over SSH, and installs it under launchd (macOS) or a systemd user unit (Linux) so it keeps sampling every two seconds. Running it again updates the probe in place."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": false,
+          "variadic": false,
+          "description": "Check a single machine"
+        }
+      ],
+      "examples": [
+        "grove probe status",
+        "grove probe status cedar-01 --json"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [],
+      "path": [
+        "probe",
+        "status"
+      ],
+      "summary": "Show each probe's position and what it costs",
+      "description": "Asks each probe how far its ring has got and how much CPU time and memory it has used, beside how far grove has read."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": true,
+          "variadic": false,
+          "description": "Machine to remove the probe from"
+        }
+      ],
+      "examples": [
+        "grove probe uninstall cedar-01 --json"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [],
+      "path": [
+        "probe",
+        "uninstall"
+      ],
+      "summary": "Stop and remove a machine's probe",
+      "description": "Stops the probe's launchd agent or systemd unit, removes it, and deletes the probe's folder. History already collected stays."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": true,
+          "variadic": false,
+          "description": "Machine the probe runs on"
+        },
+        {
+          "name": "dir",
+          "required": true,
+          "variadic": false,
+          "description": "Absolute folder holding grove-probe on that machine"
+        }
+      ],
+      "examples": [
+        "grove probe use cedar-01 /opt/grove-probe"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [],
+      "path": [
+        "probe",
+        "use"
+      ],
+      "summary": "Read a probe already running on a machine",
+      "description": "Records where a probe that was installed some other way lives, without changing anything on the machine."
+    },
+    {
+      "aliases": [],
+      "arguments": [],
+      "examples": [
+        "grove prune",
+        "grove prune --older-than 30d --json"
+      ],
+      "kind": "write",
+      "module": "system",
+      "options": [
+        {
+          "collect": false,
+          "description": "Delete samples older than this",
+          "flags": "--older-than <duration>"
+        }
+      ],
+      "path": [
+        "prune"
+      ],
+      "summary": "Delete stored samples older than a cutoff",
+      "description": "Deletes samples older than --older-than, or older than the retention setting when it is not given. Sampling applies the retention setting to each machine it stores a sample for, so prune is only needed to cut deeper or after changing the setting."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": true,
+          "variadic": false,
+          "description": "Machine to read"
+        }
+      ],
+      "examples": [
+        "grove ps cam-mini",
+        "grove ps cam-mini --limit 5 --json"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Number of processes to return",
+          "flags": "--limit <count>",
+          "defaultValue": 15
+        },
+        {
+          "collect": false,
+          "description": "Timeout in milliseconds",
+          "flags": "--timeout <ms>",
+          "defaultValue": 15000
+        }
+      ],
+      "path": [
+        "ps"
+      ],
+      "summary": "Show the busiest processes on a machine",
+      "description": "Runs ps on the machine over SSH and returns the busiest processes by CPU. A snapshot that works headless; use 'top' for the live interactive view."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "duration",
+          "required": false,
+          "variadic": false,
+          "description": "How long to keep samples, or off"
+        }
+      ],
+      "examples": [
+        "grove retention",
+        "grove retention 30d",
+        "grove retention off --json"
+      ],
+      "kind": "write",
+      "module": "system",
+      "options": [],
+      "path": [
+        "retention"
+      ],
+      "summary": "Show or set how long samples are kept",
+      "description": "Without an argument, reports how long samples are kept (90 days unless set). With a duration, sets it; 'off' keeps samples forever."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": true,
+          "variadic": false,
+          "description": "Name of the machine to remove"
+        }
+      ],
+      "examples": [
+        "grove rm cam-mini",
+        "grove rm cam-mini --yes --json"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Confirm the removal without prompting",
+          "flags": "-y, --yes"
+        }
+      ],
+      "path": [
+        "rm"
+      ],
+      "summary": "Remove a machine from the registry"
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": false,
+          "variadic": false,
+          "description": "Sample a single machine"
+        }
+      ],
+      "examples": [
+        "grove sample",
+        "grove sample cam-mini",
+        "grove sample cam-mini --json --min-store-interval 55s"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Per-machine timeout in milliseconds",
+          "flags": "--timeout <ms>",
+          "defaultValue": 15000
+        },
+        {
+          "collect": false,
+          "description": "Store a reading only when the last stored one is at least this old",
+          "flags": "--min-store-interval <duration>"
+        },
+        {
+          "collect": false,
+          "description": "Machines sampled at once",
+          "flags": "--concurrency <count>",
+          "defaultValue": 8
+        }
+      ],
+      "path": [
+        "sample"
+      ],
+      "summary": "Sample CPU, memory, disk, network, sensors, and agents over SSH",
+      "description": "Connects to each machine over SSH (or runs sh directly for this machine), reads CPU, load, memory, disk, network, sensors, and running agents in one round trip, scores its health, and stores the result as a timestamped sample. Collection is best-effort: unreachable machines are reported in the result and recorded as failed contacts, which feed down alerts, and the exit code reflects the collection run rather than machine health. Use status or alerts state as gates. --min-store-interval always returns a fresh reading but stores it, and evaluates alerts on it, only when the last stored sample is at least that old. Nothing is installed on the machines."
+    },
+    {
+      "aliases": [],
+      "arguments": [],
+      "examples": [
+        "grove schema --json"
+      ],
+      "kind": "read",
+      "module": "system",
+      "options": [],
+      "path": [
+        "schema"
+      ],
+      "summary": "Print the machine-readable command catalog"
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": true,
+          "variadic": false,
+          "description": "Machine to inspect"
+        }
+      ],
+      "examples": [
+        "grove show cam-mini",
+        "grove show cam-mini --json"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [],
+      "path": [
+        "show"
+      ],
+      "summary": "Inspect one machine and its last reading"
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": false,
+          "variadic": false,
+          "description": "Check a single machine"
+        }
+      ],
+      "examples": [
+        "grove status",
+        "grove status cam-mini",
+        "grove status --json"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Per-machine timeout in milliseconds",
+          "flags": "--timeout <ms>",
+          "defaultValue": 10000
+        }
+      ],
+      "path": [
+        "status"
+      ],
+      "summary": "Check which machines are reachable right now",
+      "description": "Runs a no-op command on each machine over SSH and times the round trip, so reachable means the same management path every other command uses, including ssh_config aliases. Exits non-zero when any checked machine is unreachable, so the command works as a health gate in scripts."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": false,
+          "variadic": false,
+          "description": "Stream from a single machine"
+        }
+      ],
+      "examples": [
+        "grove stream",
+        "grove stream --for 10m --json"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Stop after this long instead of running until interrupted",
+          "flags": "--for <duration>"
+        }
+      ],
+      "path": [
+        "stream"
+      ],
+      "summary": "Collect from every probe continuously",
+      "description": "Keeps one SSH stream open to each machine's probe and writes every reading as it lands: the last hour at full resolution, one sample a minute into history (with its alerts and hooks), and the last reading for show, status and sample. After any gap it reconnects and resumes from the last reading it got, catching up from the probe's one-hour ring. Run it under your scheduler or service manager; it stops on Ctrl+C or SIGTERM."
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": true,
+          "variadic": false,
+          "description": "Machine to attach to"
+        }
+      ],
+      "examples": [
+        "grove top cam-mini"
+      ],
+      "kind": "read",
+      "module": "machines",
+      "options": [],
+      "path": [
+        "top"
+      ],
+      "summary": "Attach an interactive top session on a machine",
+      "description": "Attaches an interactive top session on the machine over SSH with a real TTY. Interactive terminals only; headless callers get the same data from 'ps'."
+    },
+    {
+      "aliases": [],
+      "arguments": [],
+      "examples": [
+        "grove version",
+        "grove version --json"
+      ],
+      "kind": "read",
+      "module": "system",
+      "options": [],
+      "path": [
+        "version"
+      ],
+      "summary": "Show detailed version and runtime information"
+    },
+    {
+      "aliases": [],
+      "arguments": [
+        {
+          "name": "name",
+          "required": false,
+          "variadic": false,
+          "description": "Watch a single machine"
+        }
+      ],
+      "examples": [
+        "grove watch",
+        "grove watch web-01",
+        "grove watch --interval 5"
+      ],
+      "kind": "write",
+      "module": "machines",
+      "options": [
+        {
+          "collect": false,
+          "description": "Seconds between refreshes",
+          "flags": "--interval <seconds>",
+          "defaultValue": 1
+        },
+        {
+          "collect": false,
+          "description": "Per-machine timeout in milliseconds",
+          "flags": "--timeout <ms>",
+          "defaultValue": 15000
+        }
+      ],
+      "path": [
+        "watch"
+      ],
+      "summary": "Full-screen live dashboard for the fleet",
+      "description": "Takes over the terminal with a full-screen fleet dashboard: rolling CPU, memory, and network graphs, usage meters, and load per machine, refreshed every second by default. SSH connections are multiplexed so the polling stays cheap. One sample per machine per minute is persisted to history; the live stream stays in memory. Interactive terminals only; press q or Ctrl+C to stop."
+    }
+  ],
+  "schemaVersion": 1
+}
