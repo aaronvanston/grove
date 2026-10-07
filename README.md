@@ -61,7 +61,7 @@ That is a cut-down example; the full shape is in [`docs/commands.md`](docs/comma
 Each release has a build of `grove` and `grove-probe` for macOS and Linux on arm64 and x64, with a `SHA256SUMS` file to check them against.
 
 ```bash
-version=0.1.0
+version=0.1.1
 target=darwin-arm64   # or darwin-x64, linux-arm64, linux-x64
 curl -fLO "https://github.com/aaronvanston/grove/releases/download/v$version/grove-$version-$target.tar.gz"
 curl -fLO "https://github.com/aaronvanston/grove/releases/download/v$version/SHA256SUMS"

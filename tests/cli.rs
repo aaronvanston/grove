@@ -496,6 +496,46 @@ fn release(sandbox: &Sandbox) -> PathBuf {
     dist
 }
 
+/// --no-service installs the probe without touching launchd or systemd.
+#[test]
+fn the_probe_installs_unsupervised_with_no_service() {
+    let sandbox = Sandbox::new();
+    assert_eq!(sandbox.run(&["add", "here", "localhost"]).code, 0);
+    let dist = release(&sandbox);
+    let place = sandbox.root.join("remote");
+    let installed = sandbox.run(&[
+        "probe",
+        "install",
+        "here",
+        "--from",
+        &dist.display().to_string(),
+        "--dir",
+        &place.display().to_string(),
+        "--no-service",
+        "--json",
+    ]);
+    assert_eq!(installed.code, 0, "{}", installed.stderr);
+    assert_eq!(installed.data()["service"], false);
+    assert!(place.join("grove-probe").is_file());
+    let log = std::fs::read_to_string(sandbox.root.join("guard.log")).unwrap_or_default();
+    assert!(
+        !log.contains("launchctl") && !log.contains("systemctl") && !log.contains("loginctl"),
+        "{log}"
+    );
+    assert!(
+        !sandbox
+            .root
+            .join("home/Library/LaunchAgents/dev.grove.probe.plist")
+            .exists()
+    );
+    assert!(
+        !sandbox
+            .root
+            .join("home/.config/systemd/user/grove-probe.service")
+            .exists()
+    );
+}
+
 /// Install checks the archive, unpacks the probe where asked and hands it
 /// to the service manager; uninstall takes all of it away again. A
 /// tampered archive never reaches the machine.

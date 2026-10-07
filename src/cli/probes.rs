@@ -8,8 +8,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+use super::commander::OptValue;
 use super::machines::{open_store, require, targets};
-use super::options::{duration, flag, string};
+use super::options::{duration, string};
 use super::{Context, Done, NAME, VERSION};
 use crate::errors::AppError;
 use crate::output::{iso_ms, now_ms, num};
@@ -196,7 +197,8 @@ pub fn install(context: &Context) -> Result<Done, AppError> {
     let archive = format!("grove-probe-{VERSION}-{target}.tar.gz");
     let bytes = fetch_archive(&from, &archive)?;
     let dir = string(&context.options, "dir").unwrap_or_default();
-    let service = !flag(&context.options, "noService");
+    // Commander stores --no-service as service = false, the way --no-color is color = false.
+    let service = !matches!(context.options.get("service"), Some(OptValue::Bool(false)));
     let ran = run_with(
         &machine,
         &store.home,
