@@ -15,7 +15,7 @@ use crate::policy::{
     Evidence, checks, format_clock, format_quiet, in_quiet_window, local_minute_of_day,
     parse_quiet_hours,
 };
-use crate::reading::STALE_AFTER_MS;
+use crate::reading::fresh;
 use crate::store::{PolicyPatch, PolicyRow, Store};
 use crate::{drift, transport};
 
@@ -226,7 +226,7 @@ pub fn explain(context: &Context) -> Result<Done, AppError> {
         "capacity": {
             "age_s": age.map(|age| (age as f64 / 1000.0).round() as i64),
             "sampled_at": opt_iso(sampled),
-            "stale": age.is_none_or(|age| age > STALE_AFTER_MS),
+            "stale": sampled.is_none_or(|at| !fresh(now, at)),
         },
         "checked_at": iso_ms(now),
         "checks": checks,

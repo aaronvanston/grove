@@ -11,7 +11,7 @@ use crate::alerts::{
     evaluate_window, metric_value,
 };
 use crate::output::now_ms;
-use crate::reading::{STALE_AFTER_MS, Sample};
+use crate::reading::{MAX_AHEAD_MS, STALE_AFTER_MS, Sample, fresh};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hook {
@@ -392,23 +392,26 @@ impl Store {
     /// last reading's when it has one, else the newest stored sample that
     /// carried one. Nothing fresh is unknown.
     pub fn agent_sessions_for(&self, machine: &str, now: i64) -> Result<Option<i64>> {
+        // A count is whole and never negative; anything else is no count.
+        let count =
+            |sessions: f64| (sessions >= 0.0 && sessions.fract() == 0.0).then_some(sessions as i64);
         if let Some(latest) = self.latest(machine)?
-            && now - latest.taken_at <= STALE_AFTER_MS
-            && let Some(sessions) = latest.reading["agent_sessions"].as_f64()
+            && fresh(now, latest.taken_at)
+            && let Some(sessions) = latest.reading["agent_sessions"].as_f64().and_then(count)
         {
-            return Ok(Some(sessions as i64));
+            return Ok(Some(sessions));
         }
         Ok(self
             .db
             .query_row(
                 "SELECT agent_sessions FROM samples
-                 WHERE machine = ? AND taken_at >= ? AND agent_sessions IS NOT NULL
+                 WHERE machine = ? AND taken_at BETWEEN ? AND ? AND agent_sessions >= 0
                  ORDER BY taken_at DESC LIMIT 1",
-                params![machine, now - STALE_AFTER_MS],
+                params![machine, now - STALE_AFTER_MS, now + MAX_AHEAD_MS],
                 |row| row.get::<_, f64>(0),
             )
             .optional()?
-            .map(|sessions| sessions as i64))
+            .and_then(count))
     }
 
     pub fn fleet_sessions(&self, now: i64) -> Result<FleetSessions> {
@@ -417,11 +420,11 @@ impl Store {
             known: 0,
             unknown: 0,
         };
-        let mut total = 0;
+        let mut total: i64 = 0;
         for machine in self.list()? {
             match self.agent_sessions_for(&machine.name, now)? {
                 Some(sessions) => {
-                    total += sessions;
+                    total = total.saturating_add(sessions);
                     fleet.known += 1;
                 }
                 None => fleet.unknown += 1,

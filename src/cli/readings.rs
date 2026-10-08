@@ -12,7 +12,7 @@ use crate::alerts::Event;
 use crate::errors::AppError;
 use crate::output::{iso_ms, now_ms, num};
 use crate::policy::human_duration;
-use crate::reading::{STALE_AFTER_MS, Sample, cpu_between, parse, rate};
+use crate::reading::{MAX_AHEAD_MS, STALE_AFTER_MS, Sample, cpu_between, fresh, parse, rate};
 use crate::store::{Latest, Machine, Store};
 use crate::{ping, script, transport};
 
@@ -155,7 +155,13 @@ fn record_run(
                 stored: false,
             }));
         }
-        Source::Probe(bytes) => parse_probe(bytes, machine),
+        Source::Probe(bytes) => parse_probe(bytes, machine).and_then(|parsed| {
+            if parsed.sample.taken_at - taken_at > MAX_AHEAD_MS {
+                Err("The probe's reading is dated ahead of this clock.".to_owned())
+            } else {
+                Ok(parsed)
+            }
+        }),
         Source::Script(ran) if ran.ok() => parse(&ran.stdout, &machine.name, taken_at)
             .map_err(|key| format!("The machine returned an unreadable sample ({key}).")),
         Source::Script(ran) => Err(ran.failure()),
@@ -397,7 +403,7 @@ pub fn current_health(
     }
     let latest = store.latest(&machine.name)?;
     Ok(match latest {
-        Some(latest) if now - latest.taken_at <= STALE_AFTER_MS => latest.reading["health"].clone(),
+        Some(latest) if fresh(now, latest.taken_at) => latest.reading["health"].clone(),
         _ => json!({ "score": null, "status": "pending", "reason": null }),
     })
 }

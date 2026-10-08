@@ -5,7 +5,7 @@
 use serde_json::{Value, json};
 
 use crate::errors::AppError;
-use crate::reading::STALE_AFTER_MS;
+use crate::reading::{MAX_AHEAD_MS, STALE_AFTER_MS};
 use crate::store::Resolved;
 
 /// "HH:MM" to minutes from midnight.
@@ -143,6 +143,15 @@ pub fn checks(evidence: &Evidence) -> Vec<Value> {
             false,
             Some("no_capacity"),
             "No sample has ever been recorded, so capacity is unknown.".into(),
+        ),
+        Some(at) if at - evidence.now > MAX_AHEAD_MS => check(
+            "capacity",
+            false,
+            Some("stale_capacity"),
+            format!(
+                "The last sample is dated {} ahead of this clock, so capacity is unknown.",
+                human_duration((at - evidence.now) as f64 / 1000.0)
+            ),
         ),
         Some(at) if evidence.now - at > STALE_AFTER_MS => check(
             "capacity",

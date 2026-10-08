@@ -155,6 +155,42 @@ impl Ui {
     }
 }
 
+/// Text made safe for a terminal: control characters, bidi controls and
+/// every escape sequence but a color code are shown escaped rather than
+/// obeyed, so a process or host name from a machine can't move the
+/// cursor, rewrite a line, set the title or reach the clipboard. Newlines
+/// and tabs stay.
+pub fn terminal_safe(text: &str) -> String {
+    let mut safe = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(character) = rest.chars().next() {
+        if let Some(length) = color_code(rest) {
+            safe.push_str(&rest[..length]);
+            rest = &rest[length..];
+            continue;
+        }
+        let bidi = matches!(
+            character,
+            '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+        );
+        if (character.is_control() && character != '\n' && character != '\t') || bidi {
+            safe.extend(character.escape_unicode());
+        } else {
+            safe.push(character);
+        }
+        rest = &rest[character.len_utf8()..];
+    }
+    safe
+}
+
+/// The length of the color code (ESC [ digits and semicolons m) that
+/// `text` starts with, if it starts with one.
+fn color_code(text: &str) -> Option<usize> {
+    let body = text.strip_prefix("\x1b[")?;
+    let end = body.find(|character: char| !(character.is_ascii_digit() || character == ';'))?;
+    body[end..].starts_with('m').then_some(end + 3)
+}
+
 /// Characters on screen, ignoring color codes.
 fn visible_width(text: &str) -> usize {
     let mut width = 0;
@@ -169,4 +205,25 @@ fn visible_width(text: &str) -> usize {
         }
     }
     width
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Color codes and line breaks pass; a cursor move, a carriage
+    /// return, a title or clipboard sequence, a bare escape, a C1 control
+    /// and a bidi override are shown, not obeyed.
+    #[test]
+    fn remote_text_cannot_drive_the_terminal() {
+        assert_eq!(
+            terminal_safe("\x1b[1mcedar-01\x1b[22m\n\tok"),
+            "\x1b[1mcedar-01\x1b[22m\n\tok"
+        );
+        assert_eq!(
+            terminal_safe("node\x1b[2Jx\rfake\x1b]52;c;aGk=\x07\x1b\u{9b}\u{202e}gpj.exe"),
+            "node\\u{1b}[2Jx\\u{d}fake\\u{1b}]52;c;aGk=\\u{7}\\u{1b}\\u{9b}\\u{202e}gpj.exe"
+        );
+        assert_eq!(terminal_safe("\x1b[31"), "\\u{1b}[31");
+    }
 }

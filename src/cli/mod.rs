@@ -23,7 +23,7 @@ use serde_json::Value;
 use crate::catalog;
 use crate::errors::{AppError, exit};
 use crate::output::{self, ColorMode, Globals, Mode, Outcome};
-use crate::style::Ui;
+use crate::style::{Ui, terminal_safe};
 use commander::{Arg, ArgValue, Cmd, HelpAfterError, Invocation, Opt, OptValue, Output};
 pub use options::js_number;
 
@@ -430,14 +430,17 @@ fn line(text: &str) -> String {
 
 fn render_error(error: &AppError, globals: &Globals, ui: &Ui) -> i32 {
     if globals.mode == Mode::Human {
-        stderr(&line(&format!(
+        stderr(&line(&terminal_safe(&format!(
             "{} {} {}",
             ui.danger(ui.symbols.error),
             ui.danger("Error:"),
             error.message
-        )));
+        ))));
         if let Some(hint) = &error.hint {
-            stderr(&line(&format!("{} {hint}", ui.muted("hint:"))));
+            stderr(&line(&terminal_safe(&format!(
+                "{} {hint}",
+                ui.muted("hint:")
+            ))));
         }
         return error.exit_code;
     }
@@ -450,19 +453,24 @@ fn render_done(path: &str, done: &Done, globals: &Globals, ui: &Ui) -> i32 {
         return done.outcome.exit_code;
     }
     if globals.mode == Mode::Human {
+        // Human text carries names and errors from machines, so it is
+        // made safe for the terminal on its way out.
         if !done.human.is_empty() {
-            stdout(&line(&done.human));
+            stdout(&line(&terminal_safe(&done.human)));
         }
         if !globals.quiet {
             for warning in &done.outcome.warnings {
-                stderr(&line(&format!(
+                stderr(&line(&terminal_safe(&format!(
                     "{} {} {warning}",
                     ui.warning(ui.symbols.warning),
                     ui.warning("Warning:")
-                )));
+                ))));
             }
             if let Some(hint) = &done.outcome.hint {
-                stderr(&line(&format!("{} {hint}", ui.muted("hint:"))));
+                stderr(&line(&terminal_safe(&format!(
+                    "{} {hint}",
+                    ui.muted("hint:")
+                ))));
             }
         }
     } else {

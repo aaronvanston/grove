@@ -633,7 +633,11 @@ pub fn watch(context: &Context) -> Result<Done, AppError> {
                 ));
                 lines.push(String::new());
             }
-            let frame = lines.join("\r\n");
+            let frame = lines
+                .iter()
+                .map(|line| crate::style::terminal_safe(line))
+                .collect::<Vec<_>>()
+                .join("\r\n");
             let _ = write!(out, "\x1b[H\x1b[2J{frame}");
             let _ = out.flush();
             if terminal.quit_within(Duration::from_secs(interval as u64)) {

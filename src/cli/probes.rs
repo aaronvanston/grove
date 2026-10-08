@@ -36,14 +36,38 @@ fn install_failed(message: impl Into<String>) -> AppError {
     AppError::new("probe_install_failed", message)
 }
 
-/// The archive's bytes, from a folder or a release URL, checked against
-/// the SHA256SUMS beside it.
+/// A release URL must be HTTPS: the archive and its SHA256SUMS come from
+/// the same place, so the checksum is only as trustworthy as the channel.
+fn check_source(from: &str) -> Result<(), AppError> {
+    if from
+        .get(..7)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("http://"))
+    {
+        return Err(super::options::invalid_options(vec![json!({
+            "code": "custom",
+            "path": ["from"],
+            "message": "A release URL must use https://",
+        })]));
+    }
+    Ok(())
+}
+
+/// The archive's bytes, from a folder or an HTTPS release URL, checked
+/// against the SHA256SUMS beside it.
 fn fetch_archive(from: &str, archive: &str) -> Result<Vec<u8>, AppError> {
     let read = |name: &str| -> Result<Vec<u8>, AppError> {
-        if from.starts_with("https://") || from.starts_with("http://") {
+        if from.starts_with("https://") {
             let url = format!("{}/{name}", from.trim_end_matches('/'));
             let mut command = std::process::Command::new("curl");
-            command.args(["-fsSL", &url]);
+            // HTTPS only, redirects included.
+            command.args([
+                "-fsSL",
+                "--proto",
+                "=https",
+                "--proto-redir",
+                "=https",
+                &url,
+            ]);
             let ran = transport::run(&mut command, "curl", None, Duration::from_secs(120));
             if ran.ok() {
                 Ok(ran.stdout_bytes)
@@ -183,6 +207,8 @@ fn run_with(
 
 pub fn install(context: &Context) -> Result<Done, AppError> {
     let name = context.argument(0).unwrap_or_default();
+    let from = string(&context.options, "from").unwrap_or_else(|| format!("{RELEASES}/v{VERSION}"));
+    check_source(&from)?;
     let store = open_store()?;
     let machine = require(&store, &name)?;
     let uname = transport::run_script(
@@ -199,7 +225,6 @@ pub fn install(context: &Context) -> Result<Done, AppError> {
     }
     let target = target_of(&uname.stdout)
         .ok_or_else(|| install_failed(format!("No probe build for {}.", uname.stdout.trim())))?;
-    let from = string(&context.options, "from").unwrap_or_else(|| format!("{RELEASES}/v{VERSION}"));
     let archive = format!("grove-probe-{VERSION}-{target}.tar.gz");
     let bytes = fetch_archive(&from, &archive)?;
     let dir = string(&context.options, "dir").unwrap_or_default();
@@ -433,7 +458,7 @@ pub fn stream(context: &Context) -> Result<Done, AppError> {
         .iter()
         .zip(&tallies)
         .map(|(machine, tally)| {
-            let mut latencies = tally.latencies_ms.clone();
+            let mut latencies: Vec<i64> = tally.latencies_ms.iter().copied().collect();
             latencies.sort_unstable();
             let at = |share: f64| {
                 latencies

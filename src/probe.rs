@@ -319,7 +319,7 @@ fn follow(
     since: Arc<std::sync::atomic::AtomicU64>,
     child_pid: Arc<AtomicI32>,
     stop: Arc<AtomicBool>,
-    sender: mpsc::Sender<Message>,
+    sender: mpsc::SyncSender<Message>,
 ) {
     let mut backoff = Duration::from_secs(1);
     while !stop.load(Ordering::SeqCst) {
@@ -365,16 +365,26 @@ fn follow(
     }
 }
 
+/// Whether a stream that has sent `readings` in `elapsed` keeps the pace a
+/// probe can: its ring at once on connecting, then one reading an
+/// interval. Twice that pace, and a little over, is allowed.
+fn paced(readings: u64, elapsed: Duration) -> bool {
+    let intervals = elapsed.as_millis() / u128::from(grove_probe::INTERVAL_MS);
+    u128::from(readings) <= u128::from(grove_probe::CAPACITY) + 2 * intervals + 10
+}
+
 /// Reads one stream until it ends, sending echoes down `echo` (the
 /// stream's stdin) as they fall due. Readings arrive every two seconds,
-/// so checking after each frame keeps the cadence without a thread.
+/// so checking after each frame keeps the cadence without a thread. A
+/// stream sending readings faster than a probe takes them is ended, so a
+/// machine can't flood the store.
 fn read_stream(
     index: usize,
     input: impl Read,
     mut echo: Option<impl Write>,
     offset: impl FnOnce() -> i64,
     since: &std::sync::atomic::AtomicU64,
-    sender: &mpsc::Sender<Message>,
+    sender: &mpsc::SyncSender<Message>,
 ) -> String {
     let (mut reader, header) = match StreamReader::new(input) {
         Ok(opened) => opened,
@@ -387,6 +397,8 @@ fn read_stream(
     });
     let mut echoes = Echoes::default();
     let mut round_trip = None;
+    let opened = Instant::now();
+    let mut readings = 0_u64;
     loop {
         let frame = reader.next_frame();
         match &frame {
@@ -420,6 +432,10 @@ fn read_stream(
                 let _ = sender.send(Message::Facts { index, text });
             }
             Ok(Some(Frame::Reading(record))) => {
+                readings += 1;
+                if !paced(readings, opened.elapsed()) {
+                    return "the probe sent readings faster than it takes them".into();
+                }
                 since.store(record.seq, Ordering::SeqCst);
                 let _ = sender.send(Message::Reading {
                     index,
@@ -440,7 +456,8 @@ pub struct Tally {
     pub readings: u64,
     pub connects: u64,
     pub bytes: u64,
-    pub latencies_ms: Vec<i64>,
+    /// Each reading's delay from taken to received, for the last hour's.
+    pub latencies_ms: VecDeque<i64>,
     pub last_error: Option<String>,
     facts: ProbeFacts,
     round_trip_ms: Option<f64>,
@@ -463,6 +480,10 @@ pub struct Report {
     pub data: serde_json::Value,
 }
 
+/// The most stream messages held at once, waiting or in one write: a
+/// whole ring's catch-up fits.
+const BATCH_MAX: usize = grove_probe::CAPACITY as usize;
+
 /// Collects from every machine's probe until `stop` is set or `until`
 /// passes: full-resolution readings into the live window, one sample a
 /// minute into history (with its alerts), and the last reading for
@@ -475,7 +496,8 @@ pub fn collect(
     stop: &Arc<AtomicBool>,
     report: &mut dyn FnMut(Report),
 ) -> crate::store::Result<Vec<Tally>> {
-    let (sender, receiver) = mpsc::channel();
+    // Bounded, so a stream outpacing the store waits rather than queues.
+    let (sender, receiver) = mpsc::sync_channel(BATCH_MAX);
     let mut tallies: Vec<Tally> = machines.iter().map(|_| Tally::default()).collect();
     let mut pids = Vec::new();
     let mut threads = Vec::new();
@@ -511,7 +533,7 @@ pub fn collect(
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
-        if finished || last_write.elapsed() >= Duration::from_secs(1) {
+        if finished || last_write.elapsed() >= Duration::from_secs(1) || batch.len() >= BATCH_MAX {
             let prune = last_prune.elapsed() >= Duration::from_secs(60);
             if prune {
                 last_prune = Instant::now();
@@ -536,6 +558,8 @@ pub fn collect(
         }
     }
     stop.store(true, Ordering::SeqCst);
+    // A stream waiting on a full channel gives up once no one receives.
+    drop(receiver);
     for pid in &pids {
         let pid = pid.load(Ordering::SeqCst);
         if pid > 0 {
@@ -624,7 +648,15 @@ fn apply(
                 tally.seq = record.seq;
                 tally.dirty = true;
                 let taken_at = record.taken_at_ms - tally.offset;
-                tally.latencies_ms.push(received_at - taken_at);
+                // A reading dated ahead of when it arrived isn't believed:
+                // it would stay fresh, and out of pruning's reach.
+                if taken_at - received_at > crate::reading::MAX_AHEAD_MS {
+                    continue;
+                }
+                if tally.latencies_ms.len() == grove_probe::CAPACITY as usize {
+                    tally.latencies_ms.pop_front();
+                }
+                tally.latencies_ms.push_back(received_at - taken_at);
                 store.insert_live(
                     name,
                     record.seq as i64,
@@ -632,12 +664,17 @@ fn apply(
                     received_at,
                     &record.encode(),
                 )?;
+                let minute = taken_at / 60_000;
+                // History only moves forward: a reading dated before the
+                // minute being gathered stays live but makes no sample.
+                if tally.minute.is_some_and(|current| minute < current) {
+                    continue;
+                }
                 let Some(mut sample) = sample_from(&record, name, &tally.facts, tally.offset)
                 else {
                     continue;
                 };
                 sample.latency_ms = tally.round_trip_ms;
-                let minute = taken_at / 60_000;
                 if tally.minute.is_some_and(|current| current != minute)
                     && let Some(mut stored) = tally.pending.take()
                 {
@@ -726,6 +763,9 @@ fn apply(
     }
     if prune {
         store.prune_live(now - crate::store::LIVE_WINDOW_MS)?;
+        if let Some(retention) = store.retention()? {
+            store.prune(None, now - retention)?;
+        }
         events.extend(store.evaluate_fleet_sessions(now)?);
     }
     Ok(events)
@@ -809,7 +849,7 @@ mod tests {
             let mut wire = header.encode().to_vec();
             wire.extend(grove_probe::facts_frame(facts));
             wire.extend(grove_probe::echo_frame(1));
-            let (sender, receiver) = mpsc::channel();
+            let (sender, receiver) = mpsc::sync_channel(BATCH_MAX);
             let mut asked = Vec::new();
             let since = std::sync::atomic::AtomicU64::new(0);
             read_stream(0, wire.as_slice(), Some(&mut asked), || 0, &since, &sender);
@@ -829,6 +869,97 @@ mod tests {
         assert!(trips[0].is_some_and(|ms| ms < 1000.0), "{trips:?}");
         let (asked, trips) = run("hostname=cedar-01\n");
         assert!(asked.is_empty() && trips.is_empty());
+    }
+
+    /// A stream may send its ring at once on connecting, but one sending
+    /// readings faster than that is ended.
+    #[test]
+    fn a_stream_outpacing_its_probe_is_ended() {
+        let run = |count: u64| {
+            let header = Header {
+                capacity: grove_probe::CAPACITY,
+                interval_ms: grove_probe::INTERVAL_MS,
+                last_seq: count,
+                ring_id: 1,
+                probe_cpu_us: 0,
+                probe_rss_kb: 0,
+            };
+            let mut wire = header.encode().to_vec();
+            for seq in 1..=count {
+                wire.extend(
+                    Record {
+                        seq,
+                        ..Record::default()
+                    }
+                    .encode(),
+                );
+            }
+            let (sender, receiver) = mpsc::sync_channel(2 * BATCH_MAX);
+            let since = std::sync::atomic::AtomicU64::new(0);
+            let ended = read_stream(0, wire.as_slice(), None::<Vec<u8>>, || 0, &since, &sender);
+            drop(receiver);
+            (ended, since.load(Ordering::SeqCst))
+        };
+        let ring = u64::from(grove_probe::CAPACITY);
+        assert_eq!(run(ring), ("the stream ended".to_owned(), ring));
+        assert_eq!(
+            run(ring + 100),
+            (
+                "the probe sent readings faster than it takes them".to_owned(),
+                ring + 10
+            )
+        );
+        assert!(paced(ring + 40, Duration::from_secs(30)));
+        assert!(!paced(ring + 41, Duration::from_secs(30)));
+    }
+
+    /// A reading dated ahead of when it arrived is dropped, and one dated
+    /// before the minute being gathered stays live but makes no sample.
+    #[test]
+    fn readings_from_the_future_or_the_past_make_no_history() {
+        let temp = crate::store::tests::TempStore::new();
+        let store = &temp.store;
+        let machine = store
+            .add("cedar-01", "192.0.2.26", 22, &Default::default())
+            .expect("adds");
+        let now = now_ms();
+        let minute = 60_000;
+        let reading = |seq: u64, taken_at_ms: i64| Message::Reading {
+            index: 0,
+            record: Box::new(Record {
+                seq,
+                taken_at_ms,
+                cores: 4,
+                cpu_pct_x10: 100,
+                ..Record::default()
+            }),
+            received_at: now,
+            bytes: grove_probe::RECORD_SIZE,
+        };
+        let batch = vec![
+            reading(1, now - 5 * minute),
+            reading(2, now + 86_400_000),
+            reading(3, now - 3 * minute),
+            reading(4, now - 4 * minute),
+            reading(5, now - minute),
+        ];
+        let mut tallies = vec![Tally::default()];
+        let machines = [machine];
+        apply(
+            store,
+            &machines,
+            &mut tallies,
+            batch,
+            false,
+            &mut Vec::new(),
+        )
+        .expect("applies");
+        let live = store.live_since("cedar-01", i64::MIN).expect("reads");
+        assert_eq!(live.len(), 4, "the future one is dropped");
+        assert!(live.iter().all(|(at, _)| *at < now));
+        let samples = store.samples_since("cedar-01", 0.0).expect("reads");
+        let at: Vec<i64> = samples.iter().map(|sample| sample.taken_at).collect();
+        assert_eq!(at, [now - 5 * minute, now - 3 * minute]);
     }
 
     /// A probe reading lands in the same sample a script reading of the

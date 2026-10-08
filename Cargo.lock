@@ -44,7 +44,7 @@ checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
 
 [[package]]
 name = "grove"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "grove-probe",
  "libc",
@@ -54,7 +54,7 @@ dependencies = [
 
 [[package]]
 name = "grove-probe"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "libc",
 ]

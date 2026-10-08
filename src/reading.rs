@@ -15,6 +15,17 @@ use crate::store::{ConfigState, Facts};
 /// counters are too old to take a rate against.
 pub const STALE_AFTER_MS: i64 = 600_000;
 
+/// How far ahead of this clock a reading may be dated, once the machine's
+/// clock offset is taken out, and still be believed.
+pub const MAX_AHEAD_MS: i64 = 60_000;
+
+/// Whether a reading taken at `at` still describes `now`: no older than
+/// `STALE_AFTER_MS`, and not dated more than `MAX_AHEAD_MS` ahead, so a
+/// reading from the future can't stay fresh forever.
+pub fn fresh(now: i64, at: i64) -> bool {
+    (-MAX_AHEAD_MS..=STALE_AFTER_MS).contains(&(now - at))
+}
+
 /// One reading of one machine, as stored and as printed.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Sample {
@@ -125,6 +136,8 @@ pub fn parse(stdout: &str, machine: &str, taken_at: i64) -> Result<Parsed, Strin
             .map(|value| js_number(value))
             .filter(|value| value.is_finite())
     };
+    // A count is a whole number, never negative; anything else is unknown.
+    let count = |key: &str| number(key).filter(|value| *value >= 0.0 && value.fract() == 0.0);
     let required = |key: &str| numbers.get(key).copied().unwrap_or_default();
     let sample = Sample {
         machine: machine.to_owned(),
@@ -150,9 +163,9 @@ pub fn parse(stdout: &str, machine: &str, taken_at: i64) -> Result<Parsed, Strin
         gpu_temp_c: number("gpu_temp_c"),
         battery_pct: number("battery_pct"),
         battery_state: text("battery_state").map(|state| state.to_lowercase()),
-        agent_sessions: number("agent_sessions"),
-        claude_sessions: number("claude_sessions"),
-        codex_sessions: number("codex_sessions"),
+        agent_sessions: count("agent_sessions"),
+        claude_sessions: count("claude_sessions"),
+        codex_sessions: count("codex_sessions"),
         gpu_util_pct: number("gpu_util_pct"),
         gpu_mem_used_mb: number("gpu_mem_used_mb"),
         latency_ms: None,
@@ -310,6 +323,36 @@ mod tests {
     /// A Mac on battery, captured the same way: mem 62%,
     /// disk 75.4%, swap 27.5%, battery 100 and "charged".
     const MAC: &str = "hostname=cam-mbp.local\nos=Darwin\narch=arm64\ncores=10\nload1=1.40\nload5=1.45\nload15=1.42\ncpu_pct=1.4\nmem_total_kb=25165824\nmem_available_kb=9575344\ndisk_total_kb=482797652\ndisk_used_kb=364235916\nnet_rx_bytes=186219604300\nnet_tx_bytes=45005273671\nmodel=Mac16,13\nchip=Apple M4\nos_version=26.5.2\nswap_total_kb=2097152\nswap_used_kb=577280\nbattery_pct=100\nbattery_state=Charged\nagent_sessions=0\n";
+
+    /// A session count that isn't a whole number at or above zero is
+    /// unknown, so one machine can't subtract from the fleet's total.
+    #[test]
+    fn session_counts_are_whole_and_never_negative() {
+        let sessions = |value: &str| {
+            let text = LINUX.replace("agent_sessions=1", &format!("agent_sessions={value}"));
+            parse(&text, "cedar-01", 0)
+                .expect("parses")
+                .sample
+                .agent_sessions
+        };
+        assert_eq!(sessions("3"), Some(3.0));
+        assert_eq!(sessions("0"), Some(0.0));
+        for value in ["-1000", "1.5", "Infinity", "NaN", "x"] {
+            assert_eq!(sessions(value), None, "{value}");
+        }
+    }
+
+    /// Fresh is the last ten minutes, and at most a minute ahead.
+    #[test]
+    fn a_reading_from_the_future_is_not_fresh() {
+        let now = 1_791_343_943_100;
+        assert!(fresh(now, now));
+        assert!(fresh(now, now - 600_000));
+        assert!(!fresh(now, now - 600_001));
+        assert!(fresh(now, now + 60_000));
+        assert!(!fresh(now, now + 60_001));
+        assert!(!fresh(now, now + 86_400_000));
+    }
 
     #[test]
     fn readings_parse_and_derive_their_percentages() {

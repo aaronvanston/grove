@@ -709,7 +709,7 @@
       "options": [
         {
           "collect": false,
-          "description": "Folder or release URL holding the archives and SHA256SUMS",
+          "description": "Folder or HTTPS release URL holding the archives and SHA256SUMS",
           "flags": "--from <source>"
         },
         {

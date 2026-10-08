@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use crate::errors::AppError;
 use crate::policy::human_duration;
-use crate::reading::STALE_AFTER_MS;
+use crate::reading::{MAX_AHEAD_MS, STALE_AFTER_MS};
 use crate::store::{ConfigState, user_home};
 use crate::transport::run;
 
@@ -40,6 +40,16 @@ pub fn derive(config: &ConfigState, reference: &str, now: i64) -> Verdict {
         );
     };
     let age = now - checked_at;
+    if -age > MAX_AHEAD_MS {
+        return verdict(
+            "unknown",
+            Some("stale"),
+            format!(
+                "The last config reading is dated {} ahead of this clock.",
+                human_duration(-age as f64 / 1000.0)
+            ),
+        );
+    }
     if age > STALE_AFTER_MS {
         return verdict(
             "unknown",

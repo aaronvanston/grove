@@ -1,6 +1,6 @@
 # grove command reference
 
-The commands of grove 0.1.4. This page is kept in step with `src/catalog.json`; `grove schema --json` and `grove describe <command>` print the same catalog from the binary.
+The commands of grove 0.1.5. This page is kept in step with `src/catalog.json`; `grove schema --json` and `grove describe <command>` print the same catalog from the binary.
 
 Every command also takes the global flags: `--json` or `--jsonl` for machine output, `--compact`, `--color <when>` or `--no-color`, `--non-interactive`, `-q, --quiet` and `--verbose`.
 
@@ -254,7 +254,7 @@ Finds the machine's platform, checks the matching grove-probe archive against SH
 
 ### Options
 
-- `--from <source>`: Folder or release URL holding the archives and SHA256SUMS.
+- `--from <source>`: Folder or HTTPS release URL holding the archives and SHA256SUMS.
 - `--dir <path>`: Folder on the machine to install into (default ~/.grove-probe).
 - `--no-service`: Install without starting it under launchd or systemd.
 

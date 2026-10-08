@@ -636,6 +636,31 @@ fn the_probe_installs_supervised_and_uninstalls() {
     );
 }
 
+/// A plain-HTTP release source is refused before anything is fetched or
+/// any machine is reached: its checksum would come down the same channel.
+#[test]
+fn the_probe_installs_only_from_https() {
+    let sandbox = Sandbox::new();
+    assert_eq!(sandbox.run(&["add", "here", "localhost"]).code, 0);
+    let refused = sandbox.run(&[
+        "probe",
+        "install",
+        "here",
+        "--from",
+        "HTTP://192.0.2.10/releases",
+        "--json",
+    ]);
+    assert_eq!(refused.code, 2, "{}", refused.stderr);
+    assert!(
+        refused.stderr.contains("invalid_options")
+            && refused
+                .stderr
+                .contains("from: A release URL must use https://"),
+        "{}",
+        refused.stderr
+    );
+}
+
 /// A running probe streams into the store: readings arrive within the
 /// interval with their latency, sample answers from them, and graph
 /// draws the hour at full resolution.

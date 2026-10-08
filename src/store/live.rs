@@ -50,10 +50,13 @@ impl Store {
         Ok(())
     }
 
+    /// Deletes live readings taken or received before `before`: the time
+    /// they arrived is this clock's own, whatever the machine dated them.
     pub fn prune_live(&self, before: i64) -> Result<usize> {
-        Ok(self
-            .db
-            .execute("DELETE FROM live_readings WHERE taken_at < ?", [before])?)
+        Ok(self.db.execute(
+            "DELETE FROM live_readings WHERE taken_at < ?1 OR received_at < ?1",
+            [before],
+        )?)
     }
 
     /// The newest live reading: when it was taken (on this clock) and its

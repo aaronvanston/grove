@@ -61,7 +61,7 @@ That is a cut-down example; the full shape is in [`docs/commands.md`](docs/comma
 Each release has a build of `grove` and `grove-probe` for macOS and Linux on arm64 and x64, with a `SHA256SUMS` file to check them against.
 
 ```bash
-version=0.1.4
+version=0.1.5
 target=darwin-arm64   # or darwin-x64, linux-arm64, linux-x64
 curl -fLO "https://github.com/aaronvanston/grove/releases/download/v$version/grove-$version-$target.tar.gz"
 curl -fLO "https://github.com/aaronvanston/grove/releases/download/v$version/SHA256SUMS"
@@ -114,7 +114,7 @@ There is nothing to configure before first use. State lives in `~/.grove`: the S
 | `GROVE_SSH_COMMAND` | A prefix for the ssh command, such as `ssh -o ControlPath=/tmp/cm-%C`; ssh keeps the first value it sees for an option, so options here win over Grove's |
 | `GROVE_CHEZMOI_COMMAND` | The chezmoi binary `drift` reads the config source head with |
 
-SSH runs with your own config, `BatchMode` and connection sharing. Scripts are fed to `sh` on stdin, so nothing depends on the login shell.
+SSH runs with your own config, `BatchMode` and connection sharing. A machine's host key is accepted the first time Grove reaches it (`StrictHostKeyChecking=accept-new`) and checked on every connection after; to require keys you have already verified, set `GROVE_SSH_COMMAND="ssh -o StrictHostKeyChecking=yes"`. Scripts are fed to `sh` on stdin, so nothing depends on the login shell.
 
 ## Automation contract
 

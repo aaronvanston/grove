@@ -23,6 +23,8 @@ pub struct Ran {
     pub stdout_bytes: Vec<u8>,
     pub stderr: String,
     pub timed_out: Option<Duration>,
+    /// It printed more than `MAX_OUTPUT` and was killed.
+    pub overflowed: bool,
     pub elapsed: Duration,
 }
 
@@ -35,6 +37,9 @@ impl Ran {
     /// how it ended.
     pub fn failure(&self) -> String {
         let program = self.program;
+        if self.overflowed {
+            return format!("printed more than {} MB", MAX_OUTPUT >> 20);
+        }
         if let Some(limit) = self.timed_out {
             return format!("timed out after {}ms", limit.as_millis());
         }
@@ -145,6 +150,13 @@ pub fn run_script(machine: &Machine, home: &Path, script: &str, timeout: Duratio
     run(&mut command, program, Some(script.as_bytes()), timeout)
 }
 
+/// The most a run may print: a probe archive or a probe's reading fits
+/// many times over, and a machine printing more is killed rather than
+/// held in memory.
+const MAX_OUTPUT: usize = 64 << 20;
+/// Only the end of stderr is kept: its last line is what a failure says.
+const STDERR_KEPT: usize = 64 << 10;
+
 /// Runs a command with optional stdin, collecting its output, within
 /// `timeout`.
 pub fn run(
@@ -174,6 +186,7 @@ pub fn run(
                 stdout_bytes: Vec::new(),
                 stderr: error.to_string(),
                 timed_out: None,
+                overflowed: false,
                 elapsed: started.elapsed(),
             };
         }
@@ -187,31 +200,74 @@ pub fn run(
             }
         })
     });
-    let stdout = reader(child.stdout.take());
-    let stderr = reader(child.stderr.take());
+    let group = libc::pid_t::try_from(child.id()).ok();
+    let stdout = reader(child.stdout.take(), group);
+    let stderr = tail(child.stderr.take());
     let (code, timed_out) = wait(&mut child, timeout);
     if let Some(writer) = writer {
         let _ = writer.join();
     }
-    let stdout_bytes = stdout.join().unwrap_or_default();
+    let (stdout_bytes, overflowed) = stdout.join().unwrap_or_default();
     Ran {
         program,
         code,
         stdout: String::from_utf8_lossy(&stdout_bytes).into_owned(),
         stdout_bytes,
         stderr: String::from_utf8_lossy(&stderr.join().unwrap_or_default()).into_owned(),
-        timed_out: timed_out.then_some(timeout),
+        timed_out: (timed_out && !overflowed).then_some(timeout),
+        overflowed,
         elapsed: started.elapsed(),
     }
 }
 
-fn reader(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Vec<u8>> {
+/// Reads stdout to its end, up to `MAX_OUTPUT`. Past that the run's
+/// process group is killed and what was read so far is kept.
+fn reader(
+    pipe: Option<impl Read + Send + 'static>,
+    group: Option<libc::pid_t>,
+) -> std::thread::JoinHandle<(Vec<u8>, bool)> {
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
-        if let Some(mut pipe) = pipe {
-            let _ = pipe.read_to_end(&mut bytes);
+        let Some(pipe) = pipe else {
+            return (bytes, false);
+        };
+        let _ = pipe.take(MAX_OUTPUT as u64 + 1).read_to_end(&mut bytes);
+        if bytes.len() <= MAX_OUTPUT {
+            return (bytes, false);
         }
-        bytes
+        bytes.truncate(MAX_OUTPUT);
+        if let Some(group) = group {
+            // SAFETY: signals only the process group this run started,
+            // which is still writing to its pipe.
+            unsafe {
+                libc::kill(-group, libc::SIGKILL);
+            }
+        }
+        (bytes, true)
+    })
+}
+
+/// Reads stderr to its end, keeping its last `STDERR_KEPT` bytes.
+fn tail(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut kept = Vec::new();
+        let Some(mut pipe) = pipe else {
+            return kept;
+        };
+        let mut chunk = [0_u8; 8192];
+        while let Ok(read) = pipe.read(&mut chunk) {
+            if read == 0 {
+                break;
+            }
+            kept.extend_from_slice(&chunk[..read]);
+            if kept.len() > 2 * STDERR_KEPT {
+                kept.drain(..kept.len() - STDERR_KEPT);
+            }
+        }
+        if kept.len() > STDERR_KEPT {
+            kept.drain(..kept.len() - STDERR_KEPT);
+        }
+        kept
     })
 }
 
@@ -297,5 +353,28 @@ mod tests {
             sh("exit 4\n", Duration::from_secs(5)).failure(),
             "sh exited 4"
         );
+    }
+
+    /// A run that floods stdout is killed at the limit rather than read to
+    /// its end, and only the end of a flood on stderr is kept.
+    #[test]
+    fn a_run_that_prints_without_end_is_cut_off() {
+        let flood = |script: &str| {
+            run(
+                &mut Command::new("sh"),
+                "sh",
+                Some(script.as_bytes()),
+                Duration::from_secs(60),
+            )
+        };
+        let ran = flood("exec yes\n");
+        assert!(ran.elapsed < Duration::from_secs(30), "{:?}", ran.elapsed);
+        assert_eq!((ran.overflowed, ran.timed_out), (true, None));
+        assert_eq!(ran.stdout_bytes.len(), MAX_OUTPUT);
+        assert_eq!(ran.failure(), "printed more than 64 MB");
+        let ran = flood("head -c 1000000 /dev/zero | tr '\\0' x >&2; echo >&2; echo last >&2\n");
+        assert!(ran.ok() && !ran.overflowed);
+        assert!(ran.stderr.len() <= STDERR_KEPT, "{}", ran.stderr.len());
+        assert_eq!(ran.failure(), "last");
     }
 }
