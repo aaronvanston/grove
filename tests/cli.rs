@@ -464,6 +464,32 @@ fn probe_binary() -> PathBuf {
     path
 }
 
+/// A copy of the probe running from `place`. A test forking on another
+/// thread while the copy was open for writing holds it open until its own
+/// exec, so starting the copy can briefly fail as busy (ETXTBSY).
+fn run_probe(sandbox: &Sandbox, place: &std::path::Path) -> std::process::Child {
+    std::fs::create_dir_all(place).expect("place");
+    std::fs::copy(probe_binary(), place.join("grove-probe")).expect("copy");
+    let mut tries = 0;
+    loop {
+        let started = Command::new(place.join("grove-probe"))
+            .args(["run", "--dir"])
+            .arg(place.join("data"))
+            .env("HOME", sandbox.root.join("home"))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        match started {
+            Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy && tries < 50 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            started => return started.expect("probe starts"),
+        }
+    }
+}
+
 /// A release folder holding one probe archive for this machine and its
 /// SHA256SUMS line.
 fn release(sandbox: &Sandbox) -> PathBuf {
@@ -669,17 +695,7 @@ fn a_stream_collects_from_a_running_probe() {
     let sandbox = Sandbox::new();
     assert_eq!(sandbox.run(&["add", "here", "localhost"]).code, 0);
     let place = sandbox.root.join("probe");
-    std::fs::create_dir_all(&place).expect("place");
-    std::fs::copy(probe_binary(), place.join("grove-probe")).expect("copy");
-    let mut probe = Command::new(place.join("grove-probe"))
-        .args(["run", "--dir"])
-        .arg(place.join("data"))
-        .env("HOME", sandbox.root.join("home"))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("probe starts");
+    let mut probe = run_probe(&sandbox, &place);
     let used = sandbox.run(&["probe", "use", "here", &place.display().to_string()]);
     assert_eq!(used.code, 0, "{}", used.stderr);
     let streamed = sandbox.run(&["stream", "--for", "7s", "--json"]);
@@ -730,17 +746,7 @@ fn a_stream_reports_each_reading_as_a_line() {
     let sandbox = Sandbox::new();
     assert_eq!(sandbox.run(&["add", "here", "localhost"]).code, 0);
     let place = sandbox.root.join("probe");
-    std::fs::create_dir_all(&place).expect("place");
-    std::fs::copy(probe_binary(), place.join("grove-probe")).expect("copy");
-    let mut probe = Command::new(place.join("grove-probe"))
-        .args(["run", "--dir"])
-        .arg(place.join("data"))
-        .env("HOME", sandbox.root.join("home"))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("probe starts");
+    let mut probe = run_probe(&sandbox, &place);
     let dir = place.display().to_string();
     assert_eq!(sandbox.run(&["probe", "use", "here", &dir]).code, 0);
     let listed = sandbox.run(&["list", "--json"]).data();
