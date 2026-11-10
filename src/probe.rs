@@ -108,6 +108,10 @@ pub fn sample_from(
         mem_available_kb: record.mem_available_kb as f64,
         disk_total_kb: record.disk_total_kb as f64,
         disk_used_kb: record.disk_used_kb as f64,
+        // A probe before 0.1.6 left this zero, which is true of its
+        // readings: their used space counted what was purgeable.
+        disk_purgeable_kb: (facts.os == "Darwin" && record.disk_purgeable_gib != NONE_U16)
+            .then(|| f64::from(record.disk_purgeable_gib) * 1024.0 * 1024.0),
         net_rx_bytes: record.net_rx_bytes as f64,
         net_tx_bytes: record.net_tx_bytes as f64,
         uptime_s: (record.uptime_s != NONE_U32).then(|| f64::from(record.uptime_s)),
@@ -1039,5 +1043,29 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    /// A Mac's purgeable space comes back in kB, an older Mac probe's zero
+    /// stays zero, and Linux, which has no such space, has none.
+    #[test]
+    fn purgeable_space_is_a_macs_alone() {
+        let mac = parse_facts("probe_version=0.1.6\nhostname=cam-mbp\nos=Darwin\n", 0);
+        let linux = parse_facts("probe_version=0.1.6\nhostname=cedar-01\nos=Linux\n", 0);
+        let record = |gib: u16| Record {
+            seq: 1,
+            cpu_pct_x10: 10,
+            disk_purgeable_gib: gib,
+            ..Record::default()
+        };
+        let purgeable = |record: Record, facts: &ProbeFacts| {
+            sample_from(&record, "m", facts, 0)
+                .expect("a sample")
+                .record()["disk_purgeable_kb"]
+                .clone()
+        };
+        assert_eq!(purgeable(record(175), &mac), serde_json::json!(183_500_800));
+        assert_eq!(purgeable(record(0), &mac), serde_json::json!(0));
+        assert_eq!(purgeable(record(NONE_U16), &mac), serde_json::Value::Null);
+        assert_eq!(purgeable(record(0), &linux), serde_json::Value::Null);
     }
 }

@@ -15,7 +15,12 @@
 //!   two readings in a row give the real busy share between them.
 //! - Disk is measured on the APFS Data volume on macOS, because the root
 //!   mount is the sealed system snapshot, and used is total minus
-//!   available so it reflects what can still be written.
+//!   available so it reflects what can still be written. On a Mac,
+//!   available also counts the purgeable space (cached iCloud copies,
+//!   purgeable caches, local snapshots), as Finder does, since macOS
+//!   clears it when room is needed: that is the volume's capacity for
+//!   important use, asked of Foundation through osascript's JavaScript,
+//!   which needs no permission. Without it used is what df says.
 //! - Temperatures and GPU load come from macmon on a Mac when it is
 //!   installed, and from hwmon, thermal zones, nvidia-smi or the DRM
 //!   device on Linux.
@@ -234,9 +239,18 @@ disk_path=/
 if [ "$os" = "Darwin" ] && [ -d /System/Volumes/Data ]; then
   disk_path=/System/Volumes/Data
 fi
-disk=$(df -kP "$disk_path" | awk 'NR == 2 { printf "%d %d", $2, $2 - $4 }')
+disk=$(df -kP "$disk_path" | awk 'NR == 2 { print $2, $4 }')
 dtotal=$(printf '%s' "$disk" | awk '{ print $1 }')
-dused=$(printf '%s' "$disk" | awk '{ print $2 }')
+dfree=$(printf '%s' "$disk" | awk '{ print $2 }')
+purgeable=""
+if [ "$os" = "Darwin" ] && command -v osascript >/dev/null 2>&1; then
+  important=$(osascript -l JavaScript -e 'ObjC.import("Foundation"); function run(argv) { var key = $.NSURLVolumeAvailableCapacityForImportantUsageKey; var values = $.NSURL.fileURLWithPath(argv[0]).resourceValuesForKeysError($([key]), null); if (!values || values.isNil()) return ""; var n = values.objectForKey(key); return n.isNil() ? "" : String(Math.floor(Number(ObjC.unwrap(n)) / 1024)); }' "$disk_path" 2>/dev/null || true)
+  case "$important" in
+    ''|*[!0-9]*) ;;
+    *) purgeable=$(awk -v i="$important" -v f="$dfree" 'BEGIN { p = i - f; if (p < 0) p = 0; printf "%.0f", p }') ;;
+  esac
+fi
+dused=$(awk -v t="$dtotal" -v f="$dfree" -v p="${purgeable:-0}" 'BEGIN { u = t - f - p; if (u < 0) u = 0; printf "%.0f", u }')
 agents=""; claude_sessions=""; codex_sessions=""; agent_sessions=""
 if procs=$(ps ax -ww -o args= 2>/dev/null); then
   agents=$(printf '%s\n' "$procs" | awk '"#,
@@ -273,6 +287,7 @@ opt os_version "$os_version"
 opt uptime_s "$uptime_s"
 opt swap_total_kb "$swap_total"
 opt swap_used_kb "$swap_used"
+opt disk_purgeable_kb "$purgeable"
 opt cpu_temp_c "$cpu_temp"
 opt gpu_name "$gpu_name"
 opt gpu_temp_c "$gpu_temp"
@@ -408,6 +423,15 @@ mod tests {
             let parsed = crate::reading::parse(&output, "here", 0)
                 .unwrap_or_else(|key| panic!("{shell}: {key}\n{output}"));
             assert!(parsed.sample.mem_total_kb > 0.0, "{shell}");
+            assert!(
+                parsed.sample.disk_used_kb <= parsed.sample.disk_total_kb,
+                "{shell}"
+            );
+            assert_eq!(
+                parsed.sample.disk_purgeable_kb.is_some(),
+                cfg!(target_os = "macos"),
+                "{shell}: a Mac says what is purgeable\n{output}"
+            );
             assert!(
                 parsed.sample.agent_sessions.is_some(),
                 "{shell}: agents are counted even when none run"

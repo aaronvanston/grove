@@ -42,7 +42,13 @@ pub struct Sample {
     pub mem_total_kb: f64,
     pub mem_available_kb: f64,
     pub disk_total_kb: f64,
+    /// What can't be freed on demand: on a Mac the total less the free and
+    /// the purgeable space, as Finder counts it.
     pub disk_used_kb: f64,
+    /// On a Mac, the part of the free space that is purgeable files and
+    /// local snapshots, which macOS clears when room is needed. Carried by
+    /// the last reading, not stored with samples.
+    pub disk_purgeable_kb: Option<f64>,
     pub net_rx_bytes: f64,
     pub net_tx_bytes: f64,
     pub uptime_s: Option<f64>,
@@ -154,6 +160,7 @@ pub fn parse(stdout: &str, machine: &str, taken_at: i64) -> Result<Parsed, Strin
         mem_available_kb: required("mem_available_kb"),
         disk_total_kb: required("disk_total_kb"),
         disk_used_kb: required("disk_used_kb"),
+        disk_purgeable_kb: number("disk_purgeable_kb").filter(|kb| *kb >= 0.0),
         net_rx_bytes: required("net_rx_bytes"),
         net_tx_bytes: required("net_tx_bytes"),
         uptime_s: number("uptime_s"),
@@ -272,6 +279,7 @@ impl Sample {
             "cores": num(self.cores),
             "cpu_pct": num(self.cpu_pct),
             "cpu_temp_c": opt_num(self.cpu_temp_c),
+            "disk_purgeable_kb": opt_num(self.disk_purgeable_kb),
             "disk_total_kb": num(self.disk_total_kb),
             "disk_used_kb": num(self.disk_used_kb),
             "disk_used_pct": num(self.disk_used_pct()),

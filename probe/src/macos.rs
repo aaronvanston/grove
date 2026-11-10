@@ -3,6 +3,8 @@
 
 use std::ffi::{CStr, c_char, c_void};
 use std::mem::{size_of, zeroed};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use grove_probe::{NONE_I16, NONE_U16, Record};
 
@@ -33,6 +35,19 @@ unsafe extern "C" {
     fn CFDataGetLength(data: CFTypeRef) -> isize;
     fn CFDataGetBytePtr(data: CFTypeRef) -> *const u8;
     fn CFRelease(object: CFTypeRef);
+    fn CFURLCreateFromFileSystemRepresentation(
+        allocator: CFTypeRef,
+        path: *const u8,
+        length: isize,
+        is_directory: bool,
+    ) -> CFTypeRef;
+    fn CFURLCopyResourcePropertyForKey(
+        url: CFTypeRef,
+        key: CFStringRef,
+        value: *mut CFTypeRef,
+        error: *mut CFTypeRef,
+    ) -> bool;
+    static kCFURLVolumeAvailableCapacityForImportantUsageKey: CFStringRef;
 }
 
 #[link(name = "IOKit", kind = "framework")]
@@ -389,6 +404,18 @@ const TEMPERATURE_EVERY: u32 = 15;
 /// A battery's charge moves slowly, so it is read every fifteenth reading.
 const BATTERY_EVERY: u32 = 15;
 
+/// How often the purgeable space is measured. macOS answers by asking its
+/// cache-deletion service, which can take a while, so it runs on its own
+/// thread and never holds up a reading.
+const PURGEABLE_EVERY: Duration = Duration::from_secs(60);
+
+/// A measurement older than this is no longer believed, so a thread stuck
+/// waiting on macOS turns into unknown rather than a stale number.
+const PURGEABLE_STALE: Duration = Duration::from_secs(600);
+
+/// The newest purgeable space in kB, and when it was measured.
+type Purgeable = Arc<Mutex<Option<(Instant, u64)>>>;
+
 pub struct Platform {
     /// None once a look found no internal battery; else the reading count
     /// and the last charge and state.
@@ -400,6 +427,7 @@ pub struct Platform {
     page_size: u64,
     timebase: (u64, u64),
     disk_path: &'static CStr,
+    purgeable: Purgeable,
 }
 
 /// CFString keys made once.
@@ -447,6 +475,26 @@ impl Platform {
             .into_iter()
             .map(|(service, _)| service)
             .next();
+        let disk_path = if std::path::Path::new("/System/Volumes/Data").is_dir() {
+            c"/System/Volumes/Data"
+        } else {
+            c"/"
+        };
+        let purgeable = Purgeable::default();
+        let shared = Arc::clone(&purgeable);
+        // Without the thread the space is unknown, and used stays what
+        // statfs says.
+        let _ = std::thread::Builder::new()
+            .name("purgeable".into())
+            .spawn(move || {
+                loop {
+                    let measured = purgeable_kb(disk_path).map(|kb| (Instant::now(), kb));
+                    if let Ok(mut slot) = shared.lock() {
+                        *slot = measured;
+                    }
+                    std::thread::sleep(PURGEABLE_EVERY);
+                }
+            });
         Self {
             battery: Some((0, grove_probe::NONE_U8, 0)),
             smc: Smc::open(),
@@ -465,11 +513,8 @@ impl Platform {
             },
             page_size: page_size.max(4096),
             timebase: (u64::from(timebase.numer), u64::from(timebase.denom.max(1))),
-            disk_path: if std::path::Path::new("/System/Volumes/Data").is_dir() {
-                c"/System/Volumes/Data"
-            } else {
-                c"/"
-            },
+            disk_path,
+            purgeable,
         }
     }
 
@@ -535,8 +580,15 @@ impl Platform {
         if unsafe { libc::statfs(self.disk_path.as_ptr(), &mut disk) } == 0 {
             let block = u64::from(disk.f_bsize);
             let total = disk.f_blocks * block / 1024;
+            let free = disk.f_bavail * block / 1024;
+            // Finder, About This Mac and macOS itself count purgeable space
+            // as free, because it is cleared whenever something needs room.
+            let purgeable = self.purgeable();
             record.disk_total_kb = total;
-            record.disk_used_kb = total.saturating_sub(disk.f_bavail * block / 1024);
+            record.disk_used_kb = total.saturating_sub(free + purgeable.unwrap_or(0));
+            record.disk_purgeable_gib = purgeable.map_or(NONE_U16, |kb| {
+                (kb / (1024 * 1024)).min(u64::from(NONE_U16 - 1)) as u16
+            });
         }
         (record.net_rx_bytes, record.net_tx_bytes) = network();
         let mut boot: libc::timeval = libc::timeval {
@@ -574,6 +626,13 @@ impl Platform {
                 (record.battery_pct, record.battery_state) = (pct, state);
             }
         }
+    }
+
+    /// The newest purgeable space in kB, when it was measured recently.
+    fn purgeable(&self) -> Option<u64> {
+        let slot = *self.purgeable.lock().ok()?;
+        slot.filter(|(at, _)| at.elapsed() < PURGEABLE_STALE)
+            .map(|(_, kb)| kb)
     }
 
     fn gpu_utilization(&self) -> u16 {
@@ -745,6 +804,47 @@ impl Platform {
     }
 }
 
+/// What macOS could make room for on the volume at `path` beyond what
+/// statfs calls free, in kB: purgeable files (cached iCloud copies, caches
+/// marked purgeable) and local snapshots. The capacity for important use is
+/// the figure Finder and About This Mac show as available.
+fn purgeable_kb(path: &CStr) -> Option<u64> {
+    let bytes = path.to_bytes();
+    // SAFETY: the URL and the number are released; the key is a constant.
+    let important = unsafe {
+        let url = CFURLCreateFromFileSystemRepresentation(
+            std::ptr::null(),
+            bytes.as_ptr(),
+            bytes.len() as isize,
+            true,
+        );
+        if url.is_null() {
+            return None;
+        }
+        let mut value: CFTypeRef = std::ptr::null();
+        let found = CFURLCopyResourcePropertyForKey(
+            url,
+            kCFURLVolumeAvailableCapacityForImportantUsageKey,
+            &mut value,
+            std::ptr::null_mut(),
+        );
+        CFRelease(url);
+        if !found || value.is_null() {
+            return None;
+        }
+        let important = cf_i64(value);
+        CFRelease(value);
+        important?
+    };
+    // SAFETY: statfs fills the struct.
+    let mut disk: libc::statfs = unsafe { zeroed() };
+    if unsafe { libc::statfs(path.as_ptr(), &mut disk) } != 0 {
+        return None;
+    }
+    let free = disk.f_bavail * u64::from(disk.f_bsize);
+    Some(u64::try_from(important).ok()?.saturating_sub(free) / 1024)
+}
+
 /// `struct ifmibdata` from <net/if_mib.h>: an interface's name, flags and
 /// 64-bit counters.
 #[repr(C)]
@@ -791,4 +891,25 @@ fn network() -> (u64, u64) {
         }
     }
     (rx, tx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// macOS answers for the Data volume, and its reading carries the
+    /// purgeable space once the thread has measured it.
+    #[test]
+    fn the_purgeable_space_is_measured_and_counted_as_free() {
+        assert!(purgeable_kb(c"/").is_some());
+        let mut platform = Platform::new();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while platform.purgeable().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let mut record = Record::default();
+        platform.read(&mut record);
+        assert_ne!(record.disk_purgeable_gib, NONE_U16);
+        assert!(record.disk_used_kb <= record.disk_total_kb);
+    }
 }

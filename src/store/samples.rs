@@ -42,6 +42,7 @@ pub(super) fn sample_from_row(row: &Row) -> rusqlite::Result<Sample> {
         mem_available_kb: row.get("mem_available_kb")?,
         disk_total_kb: row.get("disk_total_kb")?,
         disk_used_kb: row.get("disk_used_kb")?,
+        disk_purgeable_kb: None,
         net_rx_bytes: row.get("net_rx_bytes")?,
         net_tx_bytes: row.get("net_tx_bytes")?,
         uptime_s: row.get("uptime_s")?,

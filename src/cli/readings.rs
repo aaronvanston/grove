@@ -589,10 +589,15 @@ fn render_show(data: &Value, machine: &Machine, context: &Context) -> String {
             ),
         );
     }
+    let purgeable = sample["disk_purgeable_kb"]
+        .as_f64()
+        .filter(|kb| *kb > 0.0)
+        .map(|kb| format!(" ({} of the free space purgeable)", human_bytes(kb * KIB)))
+        .unwrap_or_default();
     row(
         "Disk",
         format!(
-            "{} {} of {}",
+            "{} {} of {}{purgeable}",
             ui.meter(number("disk_used_pct"), 14),
             human_bytes(number("disk_used_kb") * KIB),
             human_bytes(number("disk_total_kb") * KIB)
