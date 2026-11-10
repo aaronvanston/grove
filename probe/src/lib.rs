@@ -6,6 +6,11 @@
 //! stops there. A value a machine can't give is a sentinel (all ones, or
 //! the minimum for signed fields), never zero.
 //!
+//! The purgeable space at byte 114 went into what was padding, which every
+//! probe before 0.1.6 left zero. Nothing else moved, so the format version
+//! stayed: an older reader skips it, and an older probe's zero is true of
+//! its readings, whose used space counted what was purgeable.
+//!
 //! The ring file is a 64-byte header followed by `capacity` slots. The
 //! writer fills slot `(seq - 1) % capacity` and then publishes `seq` in the
 //! header, so `last_seq` never points past a complete reading. A stream
@@ -70,7 +75,12 @@ pub struct Record {
     pub swap_total_kb: u64,
     pub swap_used_kb: u64,
     pub disk_total_kb: u64,
+    /// What the disk holds that can't be freed on demand: the total less
+    /// the free space and, on a Mac, the purgeable space.
     pub disk_used_kb: u64,
+    /// On a Mac, the part of the free space macOS holds in purgeable files
+    /// and local snapshots and clears when room is needed, in whole GiB.
+    pub disk_purgeable_gib: u16,
     pub net_rx_bytes: u64,
     pub net_tx_bytes: u64,
     pub cpu_temp_x10: i16,
@@ -105,6 +115,7 @@ impl Default for Record {
             swap_used_kb: NONE_U64,
             disk_total_kb: 0,
             disk_used_kb: 0,
+            disk_purgeable_gib: NONE_U16,
             net_rx_bytes: 0,
             net_tx_bytes: 0,
             cpu_temp_x10: NONE_I16,
@@ -166,6 +177,7 @@ impl Record {
         put!(b, 108, self.claude);
         put!(b, 110, self.codex);
         put!(b, 112, self.agent_cpu_x10);
+        put!(b, 114, self.disk_purgeable_gib);
         put!(b, 116, self.agent_rss_mb);
         put!(b, 120, self.seq);
         b
@@ -208,6 +220,7 @@ impl Record {
             claude: get!(b, 108, u16),
             codex: get!(b, 110, u16),
             agent_cpu_x10: get!(b, 112, u16),
+            disk_purgeable_gib: get!(b, 114, u16),
             agent_rss_mb: get!(b, 116, u32),
         })
     }
@@ -478,6 +491,7 @@ mod tests {
             battery_state: 3,
             claude: 2,
             codex: 1,
+            disk_purgeable_gib: 175,
             ..Record::default()
         };
         let bytes = record.encode();

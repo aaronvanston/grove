@@ -49,7 +49,7 @@ probe/src/sampler.rs  one reading; linux.rs and macos.rs read the kernel; agents
 - Linux: `/proc/stat`, `/proc/meminfo`, `/proc/loadavg`, `/proc/net/dev`, `/proc/uptime`, `statvfs`, hwmon and thermal zones, the DRM device for AMD GPUs, the power supply class, and `/proc/<pid>/{stat,cmdline}` to count agent sessions.
 - macOS: Mach host statistics, `sysctl` and each interface's 64-bit counters from the interface MIB, `statfs`, libproc, the SMC for temperatures, the IORegistry for GPU load, and IOKit power sources for the battery.
 
-CPU, load, memory, swap, disk and network are read every time. The slower-moving or costlier values are read less often and carried forward in between: temperatures every 10 seconds on Linux and every 30 on a Mac (a full SMC sweep costs more than the rest of a reading), the battery every 30 seconds on a Mac, and the full process list every 10 seconds. Between listings only the agent sessions already known are read, so a session that ends drops out at the next reading and a new one is counted within 10 seconds.
+CPU, load, memory, swap, disk and network are read every time. On a Mac the disk's used space leaves out what is purgeable (cached iCloud copies, purgeable caches, local snapshots), as Finder and About This Mac do, since macOS clears it whenever room is needed; statfs alone counts it as used, so a Mac with plenty of room would read as full. The purgeable space is the volume's capacity for important use less what statfs calls free. macOS works that out by asking its cache-deletion service, which can be slow, so a thread of its own measures it every minute and readings use the newest measurement under ten minutes old; without one, used is what statfs says and the purgeable space is unknown. Byte 114 was padding that older probes left zero, so the reading's layout and format version didn't change. The slower-moving or costlier values are read less often and carried forward in between: temperatures every 10 seconds on Linux and every 30 on a Mac (a full SMC sweep costs more than the rest of a reading), the battery every 30 seconds on a Mac, and the full process list every 10 seconds. Between listings only the agent sessions already known are read, so a session that ends drops out at the next reading and a new one is counted within 10 seconds.
 
 An NVIDIA GPU is read with `nvidia-smi` every two minutes, since its driver's library can't be loaded by a static binary. Facts (hostname, OS version, model, chip, address) are read at start and every ten minutes. Config state is checked every two minutes; `chezmoi verify` runs again only when its source files, its commit or the files it manages changed, and at least hourly.
 
@@ -68,8 +68,8 @@ A reading is 128 bytes, little-endian, with its sequence number at the start and
 80  u64 net rx bytes   88  u64 net tx bytes      96  i16 cpu temp ×10
 98  i16 gpu temp ×10   100 u16 gpu load ‰        102 u8 battery %
 103 u8 battery state   104 u32 gpu memory MB     108 u16 claude
-110 u16 codex          112 u16 agent cpu ‰       116 u32 agent memory MB
-120 u64 seq again
+110 u16 codex          112 u16 agent cpu ‰       114 u16 disk purgeable GiB
+116 u32 agent memory MB  120 u64 seq again
 ```
 
 A value the machine can't give is all ones (or the minimum, for signed fields), never zero. The probe's folder is its owner's alone: the folder and its `data` are `0700` and the ring, facts and pid files `0600`, tightened when the probe starts and when an install lands over an older one. The ring file is a 64-byte header (format version, capacity, interval, the newest sequence number, a ring id chosen when the file is created, and the probe's own CPU time and memory) and 1,800 slots: an hour, 230 KB. The writer fills a slot and only then publishes its sequence number in the header, so a reader never sees a reading that isn't whole; one that races the writer sees the two sequence numbers disagree and stops.
